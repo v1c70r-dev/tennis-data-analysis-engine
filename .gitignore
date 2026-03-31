@@ -205,3 +205,20 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# venv
+venv_tennis_data_analysis/
+
+# data
+experimentation/data/tennis_ball_detection_v6i_yolo26/*
+#Yolo runs
+experimentation/runs/
+
+#img data tennis_court_key_points
+experimentation/data/tennis_court_key_points/*
+experimentation/runs_court_detector/*
+experimentation/detect
+experimentation/notebooks/output.mp4
+experimentation/notebooks/checkpoints
+experimentation/notebooks/yolo26x.pt
+
