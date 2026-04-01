@@ -3,7 +3,6 @@ from contextlib import asynccontextmanager
 from app.models.loader import load_all_models
 from app.routers import analysis
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load models once at startup

@@ -8,7 +8,7 @@ def load_kps_model():
     device = torch.device(settings.device if settings.device != "0" else "cuda:0")
     model = models.resnet50()
     model.fc = torch.nn.Linear(model.fc.in_features, 14 * 2)
-    ckpt = torch.load(settings.kps_model_path, map_location="cpu")
+    ckpt = torch.load(settings.kps_model_path, map_location="cpu", weights_only=False)
     model.load_state_dict(ckpt["model"])
     model = model.to(device)
     model.eval()
