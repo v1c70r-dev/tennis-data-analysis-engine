@@ -48,6 +48,22 @@ def perception_layer(
         (width, height),
     )
 
+    # Leer primeros n_frames para identificar jugadores
+    first_frames = []
+    for _ in range(10):
+        ret, frame = cap.read()
+        if not ret:
+            break
+        first_frames.append(frame)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # rebobinar al inicio
+
+    # Detectar court y jugadores
+    kps          = kps_detector.detect(first_frames[0])
+    court_poly   = kps_detector.court_polygon(kps)
+    player_ids, avg_positions = player_tracker.identify_players(
+        first_frames, court_poly, device
+    )
+
     print(f"--- Iniciando perception layer: {video_path} ---")
 
     #  Loop principal 
@@ -64,9 +80,10 @@ def perception_layer(
                     break
 
                 frame_idx += 1
-
                 ball_row                          = ball_detector.detect(frame, device, frame_idx)
-                player_rows_frame, players_result = player_tracker.track(frame, device, frame_idx)
+                player_rows_frame, players_result = player_tracker.track(frame, device, frame_idx, player_ids=player_ids)
+                #ball_row                          = ball_detector.detect(frame, device, frame_idx)
+                #player_rows_frame, players_result = player_tracker.track(frame, device, frame_idx)
                 kps                               = kps_detector.detect(frame)
 
                 ball_rows.append(ball_row)
@@ -74,7 +91,8 @@ def perception_layer(
 
                 annotated = frame.copy()
                 ball_detector.draw(annotated, ball_row)
-                player_tracker.draw(annotated, players_result)
+                #player_tracker.draw(annotated, players_result)
+                player_tracker.draw(annotated, players_result, player_ids=player_ids)
                 kps_detector.draw(annotated, kps)
 
                 _draw_frame_counter(annotated, frame_idx)

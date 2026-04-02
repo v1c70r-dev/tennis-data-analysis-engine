@@ -36,13 +36,10 @@ class CourtKeypointDetector:
 
     #  Inferencia 
     def detect(self, frame: np.ndarray) -> np.ndarray:
-        """
-        Devuelve array de keypoints [x0,y0, x1,y1, ...] ya escalados
-        a las dimensiones reales del frame.
-        """
         frame_rgb    = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         input_tensor = self.transforms_pipeline(frame_rgb).unsqueeze(0).to(self.device)
-        kps          = self.model(input_tensor).squeeze().cpu().numpy()
+        with torch.inference_mode():
+            kps = self.model(input_tensor).squeeze().cpu().numpy()
         kps[::2]  *= self.width  / 224.0
         kps[1::2] *= self.height / 224.0
         return kps
@@ -63,3 +60,12 @@ class CourtKeypointDetector:
         model.load_state_dict(ckpt["model"])
         if optimizer:
             optimizer.load_state_dict(ckpt["optimizer"])
+
+    def court_polygon(self, kps: np.ndarray) -> np.ndarray:
+        """
+        Construye el convex hull del court a partir de los keypoints.
+        Retorna polígono (N, 1, 2) int32 listo para cv2.pointPolygonTest.
+        """
+        points = kps.reshape(-1, 2).astype(np.float32)
+        hull   = cv2.convexHull(points)
+        return hull.astype(np.int32)
