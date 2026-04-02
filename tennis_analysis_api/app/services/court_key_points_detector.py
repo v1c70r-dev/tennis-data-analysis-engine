@@ -52,7 +52,9 @@ class CourtKeypointDetector:
         """Dibuja los keypoints sobre el frame (in-place)."""
         for i in range(0, len(kps), 2):
             x, y = int(kps[i]), int(kps[i + 1])
-            cv2.circle(frame, (x, y), radius=5, color=(0, 255, 0), thickness=-1)
+            kp_idx = i // 2
+            cv2.circle(frame, (x, y), radius=5, color=(0, 0, 255), thickness=-1)
+            cv2.putText(frame, str(kp_idx), (x + 6, y - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2, cv2.LINE_AA)
 
     #  Helpers
     @staticmethod

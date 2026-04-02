@@ -11,6 +11,7 @@ import torch
 import pandas as pd
 import math
 from tqdm import tqdm
+import numpy as np
 
 #==========================================================================
 # Perception layer: tennis ball detection, players tracking,
@@ -64,7 +65,7 @@ def perception_layer(
 
                 frame_idx += 1
 
-                ball_row, ball_result             = ball_detector.detect(frame, device, frame_idx)
+                ball_row                          = ball_detector.detect(frame, device, frame_idx)
                 player_rows_frame, players_result = player_tracker.track(frame, device, frame_idx)
                 kps                               = kps_detector.detect(frame)
 
@@ -72,9 +73,11 @@ def perception_layer(
                 player_rows.extend(player_rows_frame)
 
                 annotated = frame.copy()
-                ball_detector.draw(annotated, ball_result)
+                ball_detector.draw(annotated, ball_row)
                 player_tracker.draw(annotated, players_result)
                 kps_detector.draw(annotated, kps)
+
+                _draw_frame_counter(annotated, frame_idx)
 
                 writer.write(annotated)
                 pbar.update(1)
@@ -134,3 +137,38 @@ def clean_data(obj):
         if math.isnan(obj) or math.isinf(obj):
             return None
     return obj
+
+#==========================================================================
+# Draw the current frame number in the top left corner of the video
+#==========================================================================
+def _draw_frame_counter(frame: np.ndarray, frame_idx: int) -> None:
+    """Dibuja el número de frame en negro con un fondo blanco sólido."""
+    text = f"Frame: {frame_idx}"
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.8
+    thickness = 2
+    pos = (10, 30)
+
+    # Calculate the size of the text to make the background fit perfectly
+    (w, h), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+
+    # Draw the white background rectangle
+    cv2.rectangle(
+        frame, 
+        (pos[0] - 5, pos[1] - h - 5), 
+        (pos[0] + w + 5, pos[1] + baseline + 5), 
+        (255, 255, 255), 
+        cv2.FILLED
+    )
+
+    # Draw the black text on top
+    cv2.putText(
+        frame,
+        text,
+        pos,
+        font,
+        font_scale,
+        (0, 0, 0),
+        thickness,
+        cv2.LINE_AA,
+    )
