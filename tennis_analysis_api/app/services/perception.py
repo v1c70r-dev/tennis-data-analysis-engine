@@ -12,6 +12,7 @@ import pandas as pd
 import math
 from tqdm import tqdm
 import numpy as np
+from app.services.mini_court import MiniCourt
 
 #==========================================================================
 # Perception layer: tennis ball detection, players tracking,
@@ -64,6 +65,10 @@ def perception_layer(
         first_frames, court_poly, device
     )
 
+    mini_court = MiniCourt(origin=(20, None))
+    mini_court.set_frame_size(height)
+    mini_court.set_court_reference(kps)   # kps del primer frame, ya calculados
+
     print(f"--- Iniciando perception layer: {video_path} ---")
 
     #  Loop principal 
@@ -82,8 +87,6 @@ def perception_layer(
                 frame_idx += 1
                 ball_row                          = ball_detector.detect(frame, device, frame_idx)
                 player_rows_frame, players_result = player_tracker.track(frame, device, frame_idx, player_ids=player_ids)
-                #ball_row                          = ball_detector.detect(frame, device, frame_idx)
-                #player_rows_frame, players_result = player_tracker.track(frame, device, frame_idx)
                 kps                               = kps_detector.detect(frame)
 
                 ball_rows.append(ball_row)
@@ -91,10 +94,9 @@ def perception_layer(
 
                 annotated = frame.copy()
                 ball_detector.draw(annotated, ball_row)
-                #player_tracker.draw(annotated, players_result)
                 player_tracker.draw(annotated, players_result, player_ids=player_ids)
                 kps_detector.draw(annotated, kps)
-
+                mini_court.draw(annotated, player_rows_frame)
                 _draw_frame_counter(annotated, frame_idx)
 
                 writer.write(annotated)
