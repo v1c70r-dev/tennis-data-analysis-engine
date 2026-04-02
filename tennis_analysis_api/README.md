@@ -55,3 +55,16 @@ curl -X POST http://localhost:8000/analysis/ \
 #En mi caso (prueba local)
 curl -X POST http://localhost:8000/analysis/ -F "file=@C:\Users\sprou\Documents\tennis-data-analysis-engine\experimentation\data\tennis_match.mp4"
 ```
+
+
+```bash
+#La estructura en MinIO queda así:
+{bucket}/
+└── {run_id}/
+    ├── video.mp4
+    ├── ball_raw.csv        <- ball_df directo del loop
+    ├── players_raw.csv     <- players_df directo del loop
+    ├── ball_stats.csv      <- ball_df enriquecido con speed_kmh, dist_meters, mx, my
+    ├── player_stats.csv    <- players_df enriquecido con speed_kmh, dist_meters, mx, my
+    └── player_summary.csv  <- resumen por jugador: avg_speed, max_speed, total_dist
+```

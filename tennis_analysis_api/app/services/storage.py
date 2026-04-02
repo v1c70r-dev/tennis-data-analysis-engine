@@ -2,6 +2,7 @@ import io
 from minio import Minio
 from app.config import settings
 from datetime import timedelta
+import pandas as pd
 
 client = Minio(
     settings.minio_endpoint,
@@ -25,3 +26,16 @@ def get_presigned_url(object_name: str) -> str:
         object_name,
         expires=timedelta(hours=1),
     )
+
+def upload_dataframe(df: "pd.DataFrame", object_name: str) -> str:
+    """Serializa un DataFrame a CSV y lo sube a MinIO."""
+    ensure_bucket()
+    buffer = io.BytesIO(df.to_csv(index=False).encode("utf-8"))
+    client.put_object(
+        settings.minio_bucket,
+        object_name,
+        data=buffer,
+        length=buffer.getbuffer().nbytes,
+        content_type="text/csv",
+    )
+    return object_name

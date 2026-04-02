@@ -90,6 +90,14 @@ class MiniCourt:
         dst = np.array(dst_pts, dtype=np.float32)
         self._H, _ = cv2.findHomography(src, dst, cv2.RANSAC)
 
+        # Factor de conversión: pixels de minicancha -> metros reales
+        # Usamos el ancho de la cancha (kp0 -> kp1) como referencia
+        # ya que es la dimensión más estable horizontalmente
+        pad     = self.margin
+        ox, oy  = self._origin
+        scale_x = (self.width - 2 * pad) / _COURT_WIDTH   # pixels_minicancha / metro
+        self._meters_per_pixel = 1.0 / scale_x  # metros / pixel_minicancha
+
     def project_point(self, x: float, y: float) -> tuple[int, int] | None:
         """Proyecta un punto de imagen a coordenadas de minicancha."""
         if self._H is None:
@@ -97,6 +105,34 @@ class MiniCourt:
         pt  = np.array([[[x, y]]], dtype=np.float32)
         out = cv2.perspectiveTransform(pt, self._H)
         return int(out[0][0][0]), int(out[0][0][1])
+    
+    def project_to_meters(self, x: float, y: float) -> tuple[float, float] | None:
+        """
+        Proyecta un punto de imagen a coordenadas reales en metros.
+        Primero proyecta a minicancha, luego aplica factor de conversión.
+        """
+        pt_px = self.project_point(x, y)
+        if pt_px is None:
+            return None
+    
+        ox, oy = self._origin
+        pad    = self.margin
+    
+        # Restar origen y padding para obtener coordenadas relativas al court
+        mx = (pt_px[0] - ox - pad) * self._meters_per_pixel
+        my = (pt_px[1] - oy - pad) * self._meters_per_pixel
+        return round(mx, 4), round(my, 4)
+    
+    def distance_in_meters(self, x0: float, y0: float, x1: float, y1: float) -> float | None:
+        """
+        Calcula la distancia euclidiana en metros entre dos puntos de imagen.
+        Útil para velocidad de pelota y distancia recorrida por jugadores.
+        """
+        p0 = self.project_to_meters(x0, y0)
+        p1 = self.project_to_meters(x1, y1)
+        if p0 is None or p1 is None:
+            return None
+        return round(np.sqrt((p1[0] - p0[0])**2 + (p1[1] - p0[1])**2), 4)
 
     def draw(
         self,

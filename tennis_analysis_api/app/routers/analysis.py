@@ -1,7 +1,7 @@
 import tempfile
 import os
 from fastapi import APIRouter, UploadFile, File, Request
-from app.services.perception import run_perception, clean_data
+from app.services.perception import run_perception
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
@@ -13,8 +13,12 @@ async def analyze_video(request: Request, file: UploadFile = File(...)):
         tmp.write(await file.read())
         tmp_path = tmp.name
     try:
-        raw_result = run_perception(tmp_path)
-        result = clean_data(raw_result)
+        result = run_perception(tmp_path)
+        flag = False
+        if len(result) == 0:
+            flag = False 
+        else:
+            flag = True
     finally:
         os.remove(tmp_path)
-    return result
+    return flag #success
