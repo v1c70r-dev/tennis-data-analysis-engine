@@ -64,18 +64,6 @@ class BallDetector:
             frame, f"ball {row['conf']:.2f}",
             (x1, y1 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1,
         )
-        
-        # if row.get("interpolated"):
-        #     cx, cy = int(row["cx"]), int(row["cy"])
-        #     cv2.circle(frame, (cx, cy), radius=10, color=(0, 180, 180), thickness=2)
-        # else:
-        #     x2, y2 = int(row["x2"]), int(row["y2"])
-        #     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
-        #     cv2.putText(
-        #         frame, f"ball {row['conf']:.2f}",
-        #         (x1, y1 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1,
-        #     )
-
 
     #  Helpers 
     def _empty_row(self, frame_idx: int) -> dict:

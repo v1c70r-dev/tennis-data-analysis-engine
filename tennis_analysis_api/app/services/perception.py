@@ -96,7 +96,7 @@ def perception_layer(
                 ball_detector.draw(annotated, ball_row)
                 player_tracker.draw(annotated, players_result, player_ids=player_ids)
                 kps_detector.draw(annotated, kps)
-                mini_court.draw(annotated, player_rows_frame)
+                mini_court.draw(annotated, player_rows_frame, ball_row=ball_row)
                 _draw_frame_counter(annotated, frame_idx)
 
                 writer.write(annotated)

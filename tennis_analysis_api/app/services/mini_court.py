@@ -98,17 +98,53 @@ class MiniCourt:
         out = cv2.perspectiveTransform(pt, self._H)
         return int(out[0][0][0]), int(out[0][0][1])
 
+    # def draw(
+    #     self,
+    #     frame:       np.ndarray,
+    #     player_rows: list[dict],
+    # ) -> None:
+    #     """
+    #     Dibuja la minicancha y proyecta los jugadores (in-place).
+    #     player_rows: filas del frame actual del PlayerTracker.
+    #     """
+    #     self._draw_court(frame)
+    #     self._draw_players(frame, player_rows)
+
     def draw(
         self,
         frame:       np.ndarray,
         player_rows: list[dict],
+        ball_row:    dict | None = None,   # ← nuevo, opcional para no romper llamadas existentes
     ) -> None:
         """
-        Dibuja la minicancha y proyecta los jugadores (in-place).
-        player_rows: filas del frame actual del PlayerTracker.
+        Dibuja la minicancha, proyecta jugadores y pelota (in-place).
         """
         self._draw_court(frame)
         self._draw_players(frame, player_rows)
+        if ball_row is not None:
+            self._draw_ball(frame, ball_row)
+
+    def _draw_ball(self, frame: np.ndarray, ball_row: dict) -> None:
+        """Proyecta y dibuja la pelota en la minicancha."""
+        if not ball_row.get("ball_detected") and not ball_row.get("interpolated"):
+            return  # empty row, nada que dibujar
+
+        cx = ball_row.get("cx")
+        cy = ball_row.get("cy")
+        if cx is None or cy is None:
+            return
+
+        pt = self.project_point(cx, cy)
+        if pt is None:
+            return
+
+        # if ball_row.get("interpolated"):
+        #     # Círculo hueco y más tenue para posición estimada
+        #     cv2.circle(frame, pt, radius=5, color=(0, 180, 180), thickness=1)
+        # else:
+        #     # Círculo sólido amarillo para detección real
+        #     cv2.circle(frame, pt, radius=5, color=(0, 255, 255), thickness=-1)
+        cv2.circle(frame, pt, radius=5, color=(0, 255, 255), thickness=-1)
 
     #  Helpers  
 
