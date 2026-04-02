@@ -46,7 +46,7 @@ class MiniCourt:
 
     def __init__(
         self,
-        origin: tuple[int, int] = (20, None),  # None → se calcula en set_frame_size
+        origin: tuple[int, int] = (20, None),  # None se calcula en set_frame_size
         width:  int = 150,
         height: int = 280,
         margin: int = 20,
@@ -55,7 +55,7 @@ class MiniCourt:
         self.height  = height
         self.margin  = margin
         self._origin = origin          # (x, y) esquina superior izquierda del rectángulo
-        self._H      = None            # homografía imagen → minicancha
+        self._H      = None            # homografía imagen minicancha
 
     def set_frame_size(self, frame_height: int) -> None:
         """Calcula la posición vertical si origin[1] es None (anclar al fondo)."""
@@ -72,7 +72,7 @@ class MiniCourt:
         ox, oy = self._origin
         pad    = self.margin
 
-        # Escala metros → pixels dentro del rectángulo de la minicancha
+        # Escala metros pixels dentro del rectángulo de la minicancha
         scale_x = (self.width  - 2 * pad) / _COURT_WIDTH
         scale_y = (self.height - 2 * pad) / _COURT_LENGTH
 
@@ -119,7 +119,7 @@ class MiniCourt:
         scale_x = (self.width  - 2 * pad) / _COURT_WIDTH
         scale_y = (self.height - 2 * pad) / _COURT_LENGTH
 
-        def mp(rx, ry):  # metros → pixel en minicancha
+        def mp(rx, ry):  # metros pixel en minicancha
             return (
                 int(ox + pad + rx * scale_x),
                 int(oy + pad + ry * scale_y),
