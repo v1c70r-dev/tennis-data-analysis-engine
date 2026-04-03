@@ -1,0 +1,11 @@
+include:
+  - infra/postgres/docker-compose.yml
+  - infra/rabbitmq/docker-compose.yml
+  - infra/minio/docker-compose.yml
+  - services/api_gateway/docker-compose.yml
+  - services/video_worker/docker-compose.yml
+  - services/analytics_worker/docker-compose.yml
+
+networks:
+  tennis-net:
+    driver: bridge

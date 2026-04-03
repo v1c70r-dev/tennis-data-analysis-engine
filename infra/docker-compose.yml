@@ -1,0 +1,8 @@
+include:
+  - postgres/docker-compose.yml
+  - rabbitmq/docker-compose.yml
+  - minio/docker-compose.yml
+
+networks:
+  tennis-net:
+    driver: bridge
