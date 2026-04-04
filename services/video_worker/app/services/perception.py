@@ -122,10 +122,8 @@ def perception_layer(
 #==========================================================================
 # Run perception pipeline and return results
 #==========================================================================
-def run_perception(video_path: str) -> dict:
-    run_id          = str(uuid.uuid4())
-    video_filename  = f"{run_id}/video.mp4"
-    output_path     = os.path.join(tempfile.gettempdir(), f"{run_id}.mp4")
+def run_perception(video_path: str, job_id: str) -> dict:  # ← recibe job_id
+    output_path = os.path.join(tempfile.gettempdir(), f"{job_id}.mp4")
 
     device = settings.device if settings.device != "0" else 0
 
@@ -140,24 +138,24 @@ def run_perception(video_path: str) -> dict:
         device             = device,
     )
 
-    #  Subir video a MinIO  
-    upload_file(output_path, video_filename)
-    video_url = get_presigned_url(video_filename)
+    # Subir video bajo job_id original
+    video_object = f"{job_id}/processed/video.mp4"
+    upload_file(output_path, video_object)
+    video_url = get_presigned_url(video_object)
     os.remove(output_path)
 
-    #  Calcular stats offline 
+    # Calcular stats
     ball_stats   = BallStats(ball_df, mini_court, fps)
     player_stats = PlayerStats(players_df, mini_court, fps)
 
-    #  Subir DataFrames a MinIO 
-    upload_dataframe(ball_df,              f"{run_id}/ball_raw.csv")
-    upload_dataframe(players_df,           f"{run_id}/players_raw.csv")
-    upload_dataframe(ball_stats.df,        f"{run_id}/ball_stats.csv")
-    upload_dataframe(player_stats.df,      f"{run_id}/player_stats.csv")
-    upload_dataframe(player_stats.summary(), f"{run_id}/player_summary.csv")
+    # Subir DataFrames bajo job_id original
+    upload_dataframe(ball_df,                f"{job_id}/processed/ball_raw.csv")
+    upload_dataframe(players_df,             f"{job_id}/processed/players_raw.csv")
+    upload_dataframe(ball_stats.df,          f"{job_id}/processed/ball_stats.csv")
+    upload_dataframe(player_stats.df,        f"{job_id}/processed/player_stats.csv")
+    upload_dataframe(player_stats.summary(), f"{job_id}/processed/player_summary.csv")
 
     return {
-        "run_id"      : run_id,
         "video_url"   : video_url,
         "ball_data"   : clean_data(ball_df.to_dict(orient="records")),
         "player_data" : clean_data(players_df.to_dict(orient="records")),

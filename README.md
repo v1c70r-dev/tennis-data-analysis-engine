@@ -1,6 +1,10 @@
-# tennis-data-analysis-engine
+# Tennis data analysis engine
 
-## Estructura proyecto
+## Estructura del Proyecto
+
+<div align="center">
+    <img src="./documentation/general_diagram.png" style="width:600px;">
+</div>
 
 ```bash
 tennis-data-analysis-engine/     <- backend + workers
@@ -34,22 +38,51 @@ tennis-frontend/                  <- repo independiente
 └── src/
 ```
 
+| Servicio           | Responsabilidad                                                                 | Tecnología                         | AWS                          |
+|-------------------|--------------------------------------------------------------------------------|----------------------------------|------------------------------|
+| Frontend          | UI, upload de video, visualización de resultados, descarga de reporte         | Next.js + React                  | Amplify / CloudFront + S3    |
+| API gateway       | Recibir video, crear job en Postgres, publicar mensaje en cola, exponer estado del job | FastAPI                          | ECS Fargate / Lambda         |
+| PostgreSQL        | Estado de jobs (pending → processing → done → failed), metadata, URLs de resultados | PostgreSQL                       | RDS                          |
+| RabbitMQ          | Desacoplar upload de procesamiento, garantizar entrega, manejar reintentos    | RabbitMQ                         | Amazon MQ                    |
+| Video worker      | Procesar video frame a frame, generar video anotado + CSVs, subir a MinIO, publicar video.done | FastAPI + PyTorch + YOLO         | ECS Fargate (GPU si disponible) |
+| Analytics worker  | Consumir video.done, leer CSVs, calcular agregados, generar gráficos y PDF, subir a MinIO, publicar report.done | Python + matplotlib + WeasyPrint | ECS Fargate                  |
+| MinIO / S3        | Almacenamiento de objetos: video anotado, CSVs, PNGs, PDF, JSON de datos para frontend | MinIO (local)                    | S3                           |
+
+
 ## Flujo de desarrollo
 
+### 1. Levantar toda la infra (windows powershell)
+
 ```bash
-# desarrollar solo el video_worker
-cd tennis-data-analysis-engine
-docker-compose -f infra/docker-compose.yml up    # levanta solo postgres + rabbitmq + minio
-cd services/video_worker
-docker-compose up                                 # levanta solo el worker
+# dentro de tennis-data-analysis-engine/
+scripts/up_infra.ps1
+# una vez levantada la infra, revisar que la bbdd exista, si así fuese, revisar que la tabla exista. si no, la crea
+scripts/init_db.ps1
+```
 
-# levantar todo el sistema backend
-cd tennis-data-analysis-engine
-docker-compose up
+Estructura de la tabla `jobs` (Almacena el estado y metadata básica de cada procesamiento de video):
 
-# frontend completamente independiente
-cd tennis-frontend
-docker-compose up
+| Columna     | Tipo        | Restricciones        | Descripción                                      |
+|------------|------------|---------------------|--------------------------------------------------|
+| id         | UUID       | PRIMARY KEY         | Identificador único del job                      |
+| status     | TEXT       | NOT NULL            | Estado del job (`pending`, `processing`, `done`, `failed`) |
+| created_at | TIMESTAMP  | DEFAULT CURRENT_TIMESTAMP | Fecha de creación del job                        |
+
+
+### 2. Levantar infra para solo un servicio
+
+```bash
+# 1. Infra primero
+docker compose -f infra/docker-compose.yml up -d
+
+# 2. Luego el servicio
+docker compose up --build video_worker
+```
+
+### 3. subir una imagen
+
+```bash
+curl -X POST http://localhost:8000/upload -F "file=@C:\Users\sprou\Documents\tennis-data-analysis-engine\services\video_worker\experimentation\data\tennis_match.mp4"
 ```
 
 

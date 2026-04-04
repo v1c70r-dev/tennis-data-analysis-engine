@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+
+# Notebooks / experimentación
+experimentation/
+*.ipynb
+
+# Datos pesados
+runs/
+runs_court_detector/
+detect/
+
+# Tests
+tests/
+
+# Docs
+README.md
+papers/
+
+# Env
+.env
+.env.*
+
+# OS
+.DS_Store

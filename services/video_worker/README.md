@@ -1,70 +1,129 @@
+# video_worker
 
+FastAPI microservice for tennis match video analysis. Runs a computer vision pipeline (ball detection, player tracking, court keypoints) and stores all artifacts in MinIO.
 
-```bash
-tennis-analysis-api/
-│
-├── app/
-│   ├── __init__.py
-│   ├── main.py                  # FastAPI app + endpoints
-│   ├── config.py                # settings (minio, device, model paths...)
-│   │
-│   ├── models/                  # model loading logic
-│   │   ├── __init__.py
-│   │   └── loader.py
-│   │
-│   ├── services/                # business logic
-│   │   ├── __init__.py
-│   │   ├── perception.py        # wraps perception_layer
-│   │   └── storage.py           # minio upload/download
-│   │
-│   └── routers/                 # API endpoints
-│       ├── __init__.py
-│       └── analysis.py
-│
-├── models/                      # model weights (.pt / .pth files)
-│   ├── best_tennis_ball_detection.pt
-│   ├── best_tennis_player_tracking.pt
-│   └── best_court_key_points_detection.pth
-│
-├── tests/
-│   └── test_analysis.py
-│
-├── Dockerfile
-├── docker-compose.yml           # FastAPI + MinIO together
-├── requirements.txt
-└── .env                         # secrets / config vars
+---
+
+## Request flows
+
+```
+POST /analysis
+  -> receive uploaded file
+  -> run_perception(video_path, job_id=<temp uuid>)
+  -> upload artifacts to MinIO under {run_id}/processed/
+  -> return full result JSON immediately
 ```
 
-```bash
-#reiniciar docker
-docker-compose down
-docker-compose up --build -d
+```
+POST /upload  (api_gateway)
+  -> MinIO: {job_id}/raw/{filename}
+  -> Postgres: status=pending
+  -> RabbitMQ: video.uploaded
+       |
+       v
+  video_worker (consumer)
+  -> Postgres: status=processing
+  -> run_perception(video_path, job_id=job_id)
+  -> MinIO: {job_id}/processed/
+  -> Postgres: status=done
+  -> RabbitMQ: video.done
 ```
 
+`/analysis` requires only MinIO. No Postgres or RabbitMQ needed.
+
+---
+
+## MinIO output structure
+
+```
+{bucket}/
+  {job_id}/
+    raw/
+      {filename}.mp4          <- /upload flow only
+    processed/
+      video.mp4               <- annotated output video
+      result.json             <- full perception result
+      ball_raw.csv
+      players_raw.csv
+      ball_stats.csv
+      player_stats.csv
+      player_summary.csv
+```
+
+---
+
+## Project structure
+
+```
+app/
+  main.py               # FastAPI app, lifespan, router registration
+  config.py             # Settings: MinIO, device, model paths
+  consumer.py           # RabbitMQ consumer
+  worker.py             # Async job processing logic
+  models/
+    loader.py           # Load model weights at startup
+  services/
+    perception.py       # Core pipeline
+    storage.py          # MinIO upload helpers
+    video_pipeline.py   # Entrypoint for sync and async flows
+  routers/
+    analysis.py         # POST /analysis
+models/                 # Model weight files (.pt / .pth)
+docker-compose.yml      # FastAPI + MinIO
+.env
+```
+
+---
+
+## Setup
+
 ```bash
+# First time: pull model weights
 git lfs install
 git lfs pull
+
+# Start
 docker-compose up --build -d
-fast api dev
+
+# Rebuild after changes
+docker-compose down && docker-compose up --build -d
+
+# Local dev
+fastapi dev
 ```
 
+---
+
+## Testing
+
+Swagger UI:
+```
+http://localhost:8000/docs
+```
+
+Linux / macOS:
 ```bash
-curl -X POST http://localhost:8000/analysis/ \
-  -F "file=@your_video.mp4"
-
-#En mi caso (prueba local)
-curl -X POST http://localhost:8000/analysis/ -F "file=@C:\Users\sprou\Documents\tennis-data-analysis-engine\experimentation\data\tennis_match.mp4"
+curl -X POST http://localhost:8000/analysis/ -F "file=@tennis_match.mp4"
 ```
 
-
-```bash
-#La estructura en MinIO queda así:
-{bucket}/
-└── {run_id}/
-    ├── video.mp4
-    ├── ball_raw.csv        <- ball_df directo del loop
-    ├── players_raw.csv     <- players_df directo del loop
-    ├── ball_stats.csv      <- ball_df enriquecido con speed_kmh, dist_meters, mx, my
-    ├── player_stats.csv    <- players_df enriquecido con speed_kmh, dist_meters, mx, my
-    └── player_summary.csv  <- resumen por jugador: avg_speed, max_speed, total_dist
+Windows PowerShell:
+```powershell
+curl.exe -X POST http://localhost:8000/analysis/ -F "file=@C:\path\to\tennis_match.mp4"
 ```
+
+---
+
+## Environment variables
+
+| Variable | Description |
+|---|---|
+| `MINIO_ENDPOINT` | e.g. `http://minio:9000` |
+| `MINIO_ACCESS_KEY` | MinIO access key |
+| `MINIO_SECRET_KEY` | MinIO secret key |
+| `MINIO_BUCKET` | e.g. `tennis-data` |
+| `MINIO_SECURE` | `true` or `false` |
+| `RABBITMQ_URL` | AMQP connection URL |
+| `DEVICE` | `cpu`, `cuda`, or `0` for GPU index |
+| `BALL_MODEL_PATH` | Path to ball detection weights |
+| `PLAYERS_MODEL_PATH` | Path to player tracking weights |
+| `KPS_MODEL_PATH` | Path to court keypoints weights |
