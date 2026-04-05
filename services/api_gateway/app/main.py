@@ -58,30 +58,6 @@ def ensure_rabbit_channel():
         declare_all(rabbit_channel)
     return rabbit_channel
 
-# def _declare_queues(channel):
-#     """Declare all queues. Idempotent — safe to call multiple times."""
-#     # Main queue: video.uploaded
-#     channel.queue_declare(
-#         queue="video.uploaded",
-#         durable=True,
-#         arguments={
-#             "x-dead-letter-exchange": "",
-#             "x-dead-letter-routing-key": "video.uploaded.dead",
-#         },
-#     )
-#     channel.queue_declare(queue="video.uploaded.dead", durable=True)
-
-#     # Main queue: video.processed
-#     channel.queue_declare(
-#         queue="video.processed",
-#         durable=True,
-#         arguments={
-#             "x-dead-letter-exchange": "",
-#             "x-dead-letter-routing-key": "video.processed.dead",
-#         },
-#     )
-#     channel.queue_declare(queue="video.processed.dead", durable=True)
-
 def publish_event(queue: str, message: dict):
     """Publish a message. Re-establishes the channel on connection errors."""
     global rabbit_channel

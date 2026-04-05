@@ -114,21 +114,6 @@ def process_analytics(job_id: str, output_url: str):
 
 
 # ===============================
-# Queue declaration
-# ===============================
-# def _declare_queues(channel):
-#     channel.queue_declare(
-#         queue="video.processed",
-#         durable=True,
-#         arguments={
-#             "x-dead-letter-exchange": "",
-#             "x-dead-letter-routing-key": "video.processed.dead",
-#         },
-#     )
-#     channel.queue_declare(queue="video.processed.dead", durable=True)
-
-
-# ===============================
 # Consumer
 # ===============================
 def callback(ch, method, properties, body):
