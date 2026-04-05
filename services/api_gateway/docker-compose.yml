@@ -1,13 +1,14 @@
 services:
   api_gateway:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/api_gateway/Dockerfile
     container_name: api_gateway
     restart: unless-stopped
 
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
 
       # Postgres
       - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
@@ -40,4 +41,5 @@ services:
         condition: service_healthy
 
     volumes:
-      - ./app:/app
+      - .:/app/services/api_gateway
+      - ../shared:/app/services/shared

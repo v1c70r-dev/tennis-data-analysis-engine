@@ -1,14 +1,14 @@
 services:
   analytics_worker:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/analytics_worker/Dockerfile
     container_name: analytics_worker
     restart: unless-stopped
 
     environment:
       - PYTHONUNBUFFERED=1
-
+      - PYTHONPATH=/app
       # RabbitMQ
       - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
 
@@ -37,4 +37,5 @@ services:
         condition: service_healthy
 
     volumes:
-      - ./app:/app/app
+      - .:/app/services/analytics_worker
+      - ../shared:/app/services/shared

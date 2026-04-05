@@ -1,8 +1,10 @@
+# services/analytics_worker/app/main.py
 import os
 import json
 import time
 import psycopg2
 import pika
+from services.shared.queue_definitions import declare_all
 
 # ===============================
 # Config
@@ -11,11 +13,11 @@ POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
 POSTGRES_DB = os.getenv("POSTGRES_DB", "tennis")
 POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
-
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
+S3_BUCKET = os.getenv("S3_BUCKET", "tennis-data")
 
 # ===============================
-# DB
+# DB helpers
 # ===============================
 def get_db_connection():
     return psycopg2.connect(
@@ -25,97 +27,145 @@ def get_db_connection():
         password=POSTGRES_PASSWORD,
     )
 
-# ===============================
-# Event publishing
-# ===============================
-def publish_event(queue: str, message: dict):
-    connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
-    channel = connection.channel()
 
-    channel.queue_declare(queue=queue, durable=True)
-    channel.basic_publish(
-        exchange="",
-        routing_key=queue,
-        body=json.dumps(message),
-    )
+def try_claim_job(job_id: str, expected_status: str, next_status: str) -> bool:
+    """
+    Atomically transition a job from expected_status to next_status.
+    Returns True if this worker claimed the job, False otherwise.
+    """
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE jobs
+            SET status = %s
+            WHERE id = %s AND status = %s
+            RETURNING id
+            """,
+            (next_status, job_id, expected_status),
+        )
+        claimed = cur.fetchone() is not None
+        conn.commit()
+        return claimed
+    finally:
+        conn.close()
 
-    connection.close()
+
+def finalize_job(job_id: str, report_url: str):
+    """Write the final status and report URL in a single UPDATE."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE jobs SET status = %s, report_url = %s WHERE id = %s",
+            ("report_ready", report_url, job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_failed(job_id: str):
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE jobs SET status = 'failed' WHERE id = %s", (job_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
 
 # ===============================
 # Processing logic
 # ===============================
-def process_analytics(job_id: str):
+def process_analytics(job_id: str, output_url: str):
     print(f"[analytics_worker] Processing job {job_id}")
 
-    # Simulación de procesamiento
-    time.sleep(3)
+    #  Idempotency guard 
+    # Only accept jobs in 'processed' state.
+    # 'generating_report' handles crash-then-retry: if this worker claimed the
+    # job but crashed, the next delivery finds it in 'generating_report' and
+    # skips cleanly without duplicating the report.
+    claimed = try_claim_job(job_id, expected_status="processed", next_status="generating_report")
+    if not claimed:
+        print(f"[analytics_worker] Job {job_id} not in 'processed' state => skipping")
+        return
 
-    report_path = f"s3://tennis-data/{job_id}/report.pdf"
+    try:
+        # TODO: replace with real analytics logic:
+        #   1. Download result.json from output_url (MinIO)
+        #   2. Compute stats, generate charts
+        #   3. Build PDF, upload to MinIO under {job_id}/report/report.pdf
+        report_url = f"s3://{S3_BUCKET}/{job_id}/report/report.pdf"
+        time.sleep(3)  # placeholder
 
-    # Actualizar DB
-    conn = get_db_connection()
-    cur = conn.cursor()
+        # Single DB write: status + report_url atomically.
+        # The Frontend learns about completion via polling GET /jobs/:id.
+        # No event needs to be published polling reads this directly.
+        finalize_job(job_id, report_url)
 
-    cur.execute(
-        """
-        UPDATE jobs
-        SET status = %s
-        WHERE id = %s
-        """,
-        ("done", job_id),
-    )
+        print(f"[analytics_worker] Job {job_id} -> report_ready")
 
-    conn.commit()
-    cur.close()
-    conn.close()
+    except Exception as e:
+        print(f"[analytics_worker] Job {job_id} failed: {e}")
+        mark_failed(job_id)
+        raise  # re-raise so the consumer sends a NACK -> DLQ
 
-    # Publicar evento
-    publish_event(
-        queue="report.done",
-        message={
-            "job_id": job_id,
-            "report_path": report_path,
-        },
-    )
 
-    print(f"[analytics_worker] Done job {job_id}")
+# ===============================
+# Queue declaration
+# ===============================
+# def _declare_queues(channel):
+#     channel.queue_declare(
+#         queue="video.processed",
+#         durable=True,
+#         arguments={
+#             "x-dead-letter-exchange": "",
+#             "x-dead-letter-routing-key": "video.processed.dead",
+#         },
+#     )
+#     channel.queue_declare(queue="video.processed.dead", durable=True)
+
 
 # ===============================
 # Consumer
 # ===============================
 def callback(ch, method, properties, body):
+    """
+    ACK only after successful processing.
+    On failure, NACK with requeue=False -> message goes to DLQ.
+    """
     message = json.loads(body)
     job_id = message["job_id"]
+    output_url = message.get("output_url", "")
 
     try:
-        process_analytics(job_id)
+        process_analytics(job_id, output_url)
         ch.basic_ack(delivery_tag=method.delivery_tag)
     except Exception as e:
-        print(f"Error processing job {job_id}: {e}")
-        # retry automático (RabbitMQ requeue)
-        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+        print(f"[analytics_worker] Unhandled error for job {job_id}, sending to DLQ: {e}")
+        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+
 
 def start_consumer():
     print("[analytics_worker] Starting consumer...")
-
     connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
     channel = connection.channel()
-
-    channel.queue_declare(queue="video.done", durable=True)
+    #_declare_queues(channel)
+    declare_all(channel)
     channel.basic_qos(prefetch_count=1)
-
-    channel.basic_consume(queue="video.done", on_message_callback=callback)
-
+    channel.basic_consume(queue="video.processed", on_message_callback=callback)
     channel.start_consuming()
 
+
 # ===============================
-# Entry point
+# Entry point with reconnect loop
 # ===============================
 if __name__ == "__main__":
-    # retry loop simple para esperar RabbitMQ
     while True:
         try:
             start_consumer()
         except Exception as e:
-            print(f"Retrying connection... {e}")
+            print(f"[analytics_worker] Connection lost, retrying in 5s: {e}")
             time.sleep(5)
