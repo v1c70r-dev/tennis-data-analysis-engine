@@ -4,7 +4,6 @@ import uuid
 import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from pydantic import BaseModel
 import psycopg2
 import psycopg2.pool
 import pika
@@ -16,7 +15,7 @@ from services.shared.queue_definitions import declare_all
 # Config
 # ===============================
 POSTGRES_HOST = os.environ["POSTGRES_HOST"]
-POSTGRES_PORT = os.environ.get("POSTGRES_PORT", "5432")
+POSTGRES_PORT = os.environ["POSTGRES_PORT"]
 POSTGRES_DB = os.environ["POSTGRES_DB"]
 POSTGRES_USER = os.environ["POSTGRES_USER"]
 POSTGRES_PASSWORD = os.environ["POSTGRES_PASSWORD"]

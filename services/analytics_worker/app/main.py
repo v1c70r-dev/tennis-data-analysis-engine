@@ -9,12 +9,12 @@ from services.shared.queue_definitions import declare_all
 # ===============================
 # Config
 # ===============================
-POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
-POSTGRES_DB = os.getenv("POSTGRES_DB", "tennis")
-POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
-S3_BUCKET = os.getenv("S3_BUCKET", "tennis-data")
+POSTGRES_HOST = os.environ["POSTGRES_HOST"]
+POSTGRES_DB = os.environ["POSTGRES_DB"]
+POSTGRES_USER = os.environ["POSTGRES_USER"]
+POSTGRES_PASSWORD = os.environ["POSTGRES_PASSWORD"]
+RABBITMQ_URL = os.environ["RABBITMQ_URL"]
+S3_BUCKET = os.environ["S3_BUCKET"]
 
 # ===============================
 # DB helpers
