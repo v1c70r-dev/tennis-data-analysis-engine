@@ -73,7 +73,7 @@ class MiniCourt:
         pad    = self.margin
 
         # Escala metros pixels dentro del rectángulo de la minicancha
-        scale_x = (self.width  - 2 * pad) / _COURT_WIDTH
+        scale_x = (self.width - 2 * pad) / _COURT_WIDTH   # pixels_minicancha / metro
         scale_y = (self.height - 2 * pad) / _COURT_LENGTH
 
         # Puntos fuente (imagen) y destino (minicancha) para la homografía
@@ -95,8 +95,8 @@ class MiniCourt:
         # ya que es la dimensión más estable horizontalmente
         pad     = self.margin
         ox, oy  = self._origin
-        scale_x = (self.width - 2 * pad) / _COURT_WIDTH   # pixels_minicancha / metro
-        self._meters_per_pixel = 1.0 / scale_x  # metros / pixel_minicancha
+        self._meters_per_pixel_x = 1.0 / scale_x  # metros / pixel_minicancha
+        self._meters_per_pixel_y = 1.0 / scale_y
 
     def project_point(self, x: float, y: float) -> tuple[int, int] | None:
         """Proyecta un punto de imagen a coordenadas de minicancha."""
@@ -119,8 +119,9 @@ class MiniCourt:
         pad    = self.margin
     
         # Restar origen y padding para obtener coordenadas relativas al court
-        mx = (pt_px[0] - ox - pad) * self._meters_per_pixel
-        my = (pt_px[1] - oy - pad) * self._meters_per_pixel
+        mx = (pt_px[0] - ox - pad) * self._meters_per_pixel_x
+        my = (pt_px[1] - oy - pad) * self._meters_per_pixel_y
+        
         return round(mx, 4), round(my, 4)
     
     def distance_in_meters(self, x0: float, y0: float, x1: float, y1: float) -> float | None:
@@ -138,7 +139,7 @@ class MiniCourt:
         self,
         frame:       np.ndarray,
         player_rows: list[dict],
-        ball_row:    dict | None = None,   # ← nuevo, opcional para no romper llamadas existentes
+        ball_row:    dict | None = None,   
     ) -> None:
         """
         Dibuja la minicancha, proyecta jugadores y pelota (in-place).

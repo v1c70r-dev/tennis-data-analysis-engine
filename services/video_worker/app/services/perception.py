@@ -1,3 +1,4 @@
+import json
 import uuid
 import tempfile
 import os
@@ -7,6 +8,7 @@ from app.services.player_tracker import PlayerTracker
 from app.services.tennis_ball_detector import BallDetector
 from app.services.court_key_points_detector import CourtKeypointDetector
 import cv2
+#from app.services.kalman_filter_ball_trajectory import BallKalmanFilter
 import torch
 import pandas as pd
 import math
@@ -16,6 +18,7 @@ from app.services.mini_court import MiniCourt
 from app.services.ball_stats import BallStats
 from app.services.player_stats import PlayerStats
 from app.services.storage import upload_dataframe
+from scipy.interpolate import CubicSpline
 
 #==========================================================================
 # Perception layer: tennis ball detection, players tracking,
@@ -27,13 +30,13 @@ def perception_layer(
     kps_model_path: str,
     video_path: str,
     output_path: str = "output_perception.mp4",
-    conf: float = 0.35,
-    imgsz: int = 240,
+    conf: float = 0.20,
+    imgsz: int = 640,
     device: int | str = "cpu",
-) -> tuple[pd.DataFrame, pd.DataFrame, MiniCourt, float]:
+) -> tuple[pd.DataFrame, pd.DataFrame, MiniCourt, float, dict]:
 
     #  Inicializar detectores 
-    ball_detector  = BallDetector(ball_model_path, conf=conf, imgsz=imgsz)
+    ball_detector  = BallDetector(ball_model_path, conf=conf, imgsz=imgsz, buffer_size=30)
     player_tracker = PlayerTracker(players_model_path, conf=conf, imgsz=imgsz)
 
     #  Video I/O 
@@ -44,7 +47,7 @@ def perception_layer(
 
     kps_detector = CourtKeypointDetector(kps_model_path, device=device)
     kps_detector.set_frame_size(width, height)
-
+    
     writer = cv2.VideoWriter(
         output_path,
         cv2.VideoWriter_fourcc(*"mp4v"),
@@ -64,6 +67,7 @@ def perception_layer(
     # Detectar court y jugadores
     kps          = kps_detector.detect(first_frames[0])
     court_poly   = kps_detector.court_polygon(kps)
+    ball_detector.court_poly = court_poly
     player_ids, avg_positions = player_tracker.identify_players(
         first_frames, court_poly, device
     )
@@ -71,6 +75,13 @@ def perception_layer(
     mini_court = MiniCourt(origin=(20, None))
     mini_court.set_frame_size(height)
     mini_court.set_court_reference(kps)   # kps del primer frame, ya calculados
+
+    mini_court_state = {
+        "kps": kps.tolist(),
+        "frame_height": height,
+        "frame_width": width,
+        "origin": mini_court._origin,
+    }
 
     print(f"--- Iniciando perception layer: {video_path} ---")
 
@@ -89,6 +100,7 @@ def perception_layer(
 
                 frame_idx += 1
                 ball_row                          = ball_detector.detect(frame, device, frame_idx)
+
                 player_rows_frame, players_result = player_tracker.track(frame, device, frame_idx, player_ids=player_ids)
                 kps                               = kps_detector.detect(frame)
                 ball_row["shot_by"] = _assign_shot_to_player(ball_row, player_rows_frame) 
@@ -113,47 +125,125 @@ def perception_layer(
     cap.release()
     writer.release()
 
+    mini_court_state_df = pd.DataFrame([mini_court_state])
+    player_df = pd.DataFrame(player_rows)
+    ball_df  = pd.DataFrame(ball_rows)
+    ball_df  = smooth_ball_positions(ball_df, max_gap=15, use_spline=True) #extra post processing to interpolate the trajectory of the ball in a smoother way
+    
     print(f"  Video guardado en : {output_path}")
     print(f"  Total frames      : {frame_idx}\n")
 
-    return pd.DataFrame(ball_rows), pd.DataFrame(player_rows), mini_court, fps
-
+    return ball_df, player_df, mini_court, fps, mini_court_state_df
 
 #==========================================================================
 # Run perception pipeline and return results
 #==========================================================================
-def run_perception(video_path: str, job_id: str) -> dict:  # ← recibe job_id
-    output_path = os.path.join(tempfile.gettempdir(), f"{job_id}.mp4")
+# def run_perception(video_path: str, job_id: str) -> dict:  # ← recibe job_id
+#     output_path = os.path.join(tempfile.gettempdir(), f"{job_id}.mp4")
 
-    device = settings.device if settings.device != "0" else 0
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    ball_df, players_df, mini_court, fps = perception_layer(
+#     ball_df, players_df, mini_court, fps = perception_layer(
+#         ball_model_path    = settings.ball_model_path,
+#         players_model_path = settings.players_model_path,
+#         kps_model_path     = settings.kps_model_path,
+#         video_path         = video_path,
+#         output_path        = output_path,
+#         conf               = 0.20,
+#         imgsz              = 640,
+#         device             = device,
+#     )
+
+#     render_smooth_overlay(
+#         input_video  = "output_perception.mp4",
+#         output_video = "output_smooth.mp4",
+#         ball_df      = ball_df,
+#     )
+
+#     # Subir video bajo job_id original
+#     video_object = f"{job_id}/processed/video.mp4"
+#     upload_file(output_path, video_object)
+#     video_url = get_presigned_url(video_object)
+#     os.remove(output_path)
+
+#     # Calcular stats
+#     ball_stats   = BallStats(ball_df, mini_court, fps)
+#     player_stats = PlayerStats(players_df, mini_court, fps)
+
+#     # Subir DataFrames bajo job_id original
+#     upload_dataframe(ball_df,                f"{job_id}/processed/ball_raw.csv")
+#     upload_dataframe(players_df,             f"{job_id}/processed/players_raw.csv")
+#     upload_dataframe(ball_stats.df,          f"{job_id}/processed/ball_stats.csv")
+#     upload_dataframe(player_stats.df,        f"{job_id}/processed/player_stats.csv")
+#     upload_dataframe(player_stats.summary(), f"{job_id}/processed/player_summary.csv")
+
+#     return {
+#         "video_url"   : video_url,
+#         "ball_data"   : clean_data(ball_df.to_dict(orient="records")),
+#         "player_data" : clean_data(players_df.to_dict(orient="records")),
+#         "ball_stats"  : clean_data(ball_stats.df.to_dict(orient="records")),
+#         "player_stats": clean_data(player_stats.summary().to_dict(orient="records")),
+#     }
+
+def run_perception(video_path: str, job_id: str) -> dict:
+    output_path        = os.path.join(tempfile.gettempdir(), f"{job_id}.mp4")
+    output_smooth_path = os.path.join(tempfile.gettempdir(), f"{job_id}_smooth.mp4")
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    ball_df, players_df, mini_court, fps, mini_court_state = perception_layer(
         ball_model_path    = settings.ball_model_path,
         players_model_path = settings.players_model_path,
         kps_model_path     = settings.kps_model_path,
         video_path         = video_path,
         output_path        = output_path,
-        conf               = 0.25,
+        conf               = 0.20,
         imgsz              = 640,
         device             = device,
     )
 
-    # Subir video bajo job_id original
+    render_smooth_overlay(
+        input_video  = output_path,         
+        output_video = output_smooth_path,  
+        ball_df      = ball_df,
+    )
+
     video_object = f"{job_id}/processed/video.mp4"
-    upload_file(output_path, video_object)
+    upload_file(output_smooth_path, video_object)     
     video_url = get_presigned_url(video_object)
-    os.remove(output_path)
+    os.remove(output_path)                             
+    os.remove(output_smooth_path)
 
     # Calcular stats
     ball_stats   = BallStats(ball_df, mini_court, fps)
     player_stats = PlayerStats(players_df, mini_court, fps)
 
-    # Subir DataFrames bajo job_id original
+
+    def sanitize_for_json(obj):
+        if isinstance(obj, pd.DataFrame):
+            return obj.to_dict(orient="records")
+        if isinstance(obj, pd.Series):
+            return obj.to_dict()
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if hasattr(obj, 'item') and not isinstance(obj, (list, dict)):
+            return obj.item()
+        return obj
+
+    # Sanitize the dictionary once
+    mini_court_state_clean = {k: sanitize_for_json(v) for k, v in mini_court_state.items()}
+    upload_file_path = "/tmp/mini_court_state.json"
+    with open(upload_file_path, "w") as f:
+        json.dump(mini_court_state_clean, f)
+        
+    # Subir DataFrames
     upload_dataframe(ball_df,                f"{job_id}/processed/ball_raw.csv")
     upload_dataframe(players_df,             f"{job_id}/processed/players_raw.csv")
     upload_dataframe(ball_stats.df,          f"{job_id}/processed/ball_stats.csv")
     upload_dataframe(player_stats.df,        f"{job_id}/processed/player_stats.csv")
     upload_dataframe(player_stats.summary(), f"{job_id}/processed/player_summary.csv")
+    upload_file(upload_file_path,            f"{job_id}/processed/mini_court_state.json")
+    os.remove(upload_file_path)
 
     return {
         "video_url"   : video_url,
@@ -161,6 +251,7 @@ def run_perception(video_path: str, job_id: str) -> dict:  # ← recibe job_id
         "player_data" : clean_data(players_df.to_dict(orient="records")),
         "ball_stats"  : clean_data(ball_stats.df.to_dict(orient="records")),
         "player_stats": clean_data(player_stats.summary().to_dict(orient="records")),
+        "mini_court_homography_state": mini_court_state_clean
     }
 
 #==========================================================================
@@ -409,3 +500,138 @@ def _compute_player_speed(
         }
         for pid, v in result.items()
     }
+
+#################################################
+def smooth_ball_positions(
+    ball_df: pd.DataFrame,
+    max_gap: int = 15,
+    use_spline: bool = True,
+) -> pd.DataFrame:
+    """
+    Post-procesamiento bidireccional de posiciones de la pelota.
+
+    Para cada secuencia de frames inválidos (no detectados o interpolados),
+    busca el último punto válido antes y el primero válido después, e interpola
+    entre ellos. Si la brecha supera max_gap frames, no interpola (deja NaN).
+
+    Parámetros
+    ----------
+    ball_df  : DataFrame de salida de perception_layer (una fila por frame)
+    max_gap  : máximo número de frames consecutivos inválidos que se rellenan
+    use_spline: True = CubicSpline (suave, requiere ≥4 puntos ancla)
+                False = interpolación lineal (siempre disponible)
+
+    Retorna
+    -------
+    DataFrame nuevo con columnas cx_smooth, cy_smooth, smooth_method añadidas.
+    El DataFrame original no se modifica.
+    """
+    df = ball_df.copy()
+    df["cx_smooth"]    = df["cx"].copy()
+    df["cy_smooth"]    = df["cy"].copy()
+    df["smooth_method"] = "original"
+
+    #  Identificar frames válidos 
+    # Un frame es válido si fue detectado dentro de la cancha (no interpolado)
+    valid_mask = df["ball_detected"] & ~df["interpolated"]
+    valid_idx  = df.index[valid_mask].tolist()
+
+    if len(valid_idx) < 2:
+        # Sin suficientes puntos válidos, no hay nada que hacer
+        return df
+
+    #  Recorrer gaps entre puntos válidos consecutivos 
+    for i in range(len(valid_idx) - 1):
+        left  = valid_idx[i]        # último frame válido antes del gap
+        right = valid_idx[i + 1]    # primer frame válido después del gap
+        gap   = right - left - 1    # frames inválidos entre ambos
+
+        if gap == 0:
+            continue  # frames contiguos, nada que rellenar
+
+        if gap > max_gap:
+            # Brecha demasiado larga => dejar NaN, no inventar
+            df.loc[left + 1 : right - 1, "smooth_method"] = "gap_too_large"
+            continue
+
+        frames_to_fill = list(range(left + 1, right))
+
+        #  Elegir método según puntos ancla disponibles 
+        if use_spline:
+            # Tomar hasta 4 puntos ancla a cada lado para el spline
+            left_anchors  = [idx for idx in valid_idx if idx <= left][-4:]
+            right_anchors = [idx for idx in valid_idx if idx >= right][:4]
+            anchor_idx    = left_anchors + right_anchors
+
+            if len(anchor_idx) >= 4:
+                anchor_cx = df.loc[anchor_idx, "cx"].values
+                anchor_cy = df.loc[anchor_idx, "cy"].values
+
+                cs_x = CubicSpline(anchor_idx, anchor_cx)
+                cs_y = CubicSpline(anchor_idx, anchor_cy)
+
+                df.loc[frames_to_fill, "cx_smooth"] = cs_x(frames_to_fill).round(2)
+                df.loc[frames_to_fill, "cy_smooth"] = cs_y(frames_to_fill).round(2)
+                df.loc[frames_to_fill, "smooth_method"] = "spline"
+                continue
+            # Si no hay suficientes puntos para spline, caer a lineal
+
+        #  Interpolación lineal 
+        cx_left,  cy_left  = df.loc[left,  "cx"], df.loc[left,  "cy"]
+        cx_right, cy_right = df.loc[right, "cx"], df.loc[right, "cy"]
+
+        for f in frames_to_fill:
+            t = (f - left) / (right - left)
+            df.loc[f, "cx_smooth"] = round(cx_left  + t * (cx_right - cx_left),  2)
+            df.loc[f, "cy_smooth"] = round(cy_left  + t * (cy_right - cy_left),  2)
+            df.loc[f, "smooth_method"] = "linear"
+
+    return df
+
+def draw_smooth(frame: np.ndarray, row: pd.Series) -> None:
+    cx = row.get("cx_smooth")
+    cy = row.get("cy_smooth")
+    if pd.isna(cx) or pd.isna(cy):
+        return
+    cx, cy = int(cx), int(cy)
+    method = row.get("smooth_method", "")
+    label  = {"spline": "SP", "linear": "LN", "original": "OR"}.get(method, "?")
+    cv2.circle(frame, (cx, cy), radius=10, color=(255, 0, 128), thickness=4)
+    cv2.putText(
+        frame, label,
+        (cx + 12, cy - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 128), 2,
+    )
+
+def render_smooth_overlay(
+    input_video: str,
+    output_video: str,
+    ball_df: pd.DataFrame,
+) -> None:
+    cap    = cv2.VideoCapture(input_video)
+    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps    = cap.get(cv2.CAP_PROP_FPS)
+
+    writer = cv2.VideoWriter(
+        output_video,
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        (width, height),
+    )
+
+    frame_idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame_idx += 1
+
+        rows = ball_df[ball_df["frame"] == frame_idx]
+        if not rows.empty:
+            draw_smooth(frame, rows.iloc[0])
+
+        writer.write(frame)
+
+    cap.release()
+    writer.release()
+    print(f"Video con smooth guardado en: {output_video}")

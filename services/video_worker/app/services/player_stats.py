@@ -71,6 +71,8 @@ class PlayerStats:
                 df.at[idx, "my"] = result[1]
 
             valid = df[(df["player_id"] == pid) & df["mx"].notna()]
+            #valid = group.copy()
+            #valid = valid[valid["mx"].notna()].sort_values("frame")
             mx    = valid["mx"].values
             my    = valid["my"].values
             idx   = valid.index

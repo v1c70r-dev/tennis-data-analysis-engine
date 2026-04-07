@@ -269,3 +269,5 @@ coverage.xml
 .idea/
 *.swp
 *.swo
+
+experimentation/data/*
