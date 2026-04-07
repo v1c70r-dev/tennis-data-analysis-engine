@@ -1,45 +1,5 @@
-# FROM python:3.11
-
-# WORKDIR /app
-
-# ENV PYTHONUNBUFFERED=1
-# ENV PYTHONPATH=/app
-
-# # ===============================
-# # System dependencies (mínimas)
-# # ===============================
-# RUN apt-get update && apt-get install -y \
-#     libgl1 \
-#     libglib2.0-0 \
-#     && rm -rf /var/lib/apt/lists/*
-
-# # ===============================
-# # Instalar dependencias primero (cache)
-# # ===============================
-# COPY requirements.txt .
-
-# RUN pip install --no-cache-dir --upgrade pip && \
-#     pip install --no-cache-dir -r requirements.txt
-
-# # Instalar primero Torch apuntando al repositorio de CUDA (con gpu)
-# # RUN pip install --no-cache-dir torch==2.5.1+cu121 \
-# #     --extra-index-url https://download.pytorch.org/whl/cu121
-
-# # ===============================
-# # Copiar SOLO código necesario
-# # ===============================
-# COPY app ./app
-# COPY models ./models
-# COPY services/shared ./services/shared
-
-# #NO copiar experimentation
-
-# # ===============================
-# # Start
-# # ===============================
-# CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-FROM python:3.11
+#FROM python:3.11
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
 
 WORKDIR /app
 
@@ -49,14 +9,31 @@ ENV PYTHONPATH=/app
 
 # Dependencias del sistema
 RUN apt-get update && apt-get install -y \
+    python3.11 \
+    python3-pip \
     libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
+
+RUN ln -s /usr/bin/python3.11 /usr/bin/python
+# RUN apt-get update && apt-get install -y \
+#     libgl1 \
+#     libglib2.0-0 \
+#     && rm -rf /var/lib/apt/lists/*
 
 # Copiamos requirements usando la ruta desde la raíz (contexto actual)
 COPY services/video_worker/requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
+
+# Instalación de PyTorch 2.5.1 compatible con CUDA 12.x
+# Usamos el wheel de cu121 ya que es el estándar de compatibilidad para drivers 12.3+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+    torch==2.5.1 \
+    torchvision==0.20.1 \
+    torchaudio==2.5.1 \
+    --index-url https://download.pytorch.org/whl/cu121
 
 # Copiamos la carpeta shared y el código del worker
 COPY services/shared ./services/shared

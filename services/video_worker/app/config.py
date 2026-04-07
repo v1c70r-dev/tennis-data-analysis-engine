@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings(BaseSettings):
-    device: str
+    #device: str
     ball_model_path: str
     players_model_path: str
     kps_model_path: str
