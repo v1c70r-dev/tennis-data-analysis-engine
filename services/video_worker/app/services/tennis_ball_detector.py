@@ -18,19 +18,6 @@ class BallDetector:
         self._v2_buffer                  = deque(maxlen=buffer_size)
         self._consecutive_interpolations = 0
 
-    #  Inferencia 
-    # def detect(self, frame, device, frame_idx: int) -> dict:
-    #     result   = self.model.predict(
-    #         frame, conf=self.conf, imgsz=self.imgsz, device=device, verbose=False,
-    #     )[0]
-    #     detected = result.boxes is not None and len(result.boxes) > 0
-
-    #     if detected:
-    #         row = self._parse(result, frame_idx)
-    #         self._buffer.append((row["cx"], row["cy"]))
-    #     else:
-    #         row = self._interpolate_row(frame_idx)
-
     #     return row
     def detect(self, frame, device, frame_idx: int) -> dict:
         result   = self.model.predict(
