@@ -1,5 +1,4 @@
 import json
-import uuid
 import tempfile
 import os
 from app.config import settings
@@ -8,7 +7,6 @@ from app.services.player_tracker import PlayerTracker
 from app.services.tennis_ball_detector import BallDetector
 from app.services.court_key_points_detector import CourtKeypointDetector
 import cv2
-#from app.services.kalman_filter_ball_trajectory import BallKalmanFilter
 import torch
 import pandas as pd
 import math
@@ -33,7 +31,7 @@ def perception_layer(
     conf: float = 0.20,
     imgsz: int = 640,
     device: int | str = "cpu",
-) -> tuple[pd.DataFrame, pd.DataFrame, MiniCourt, float, dict]:
+) -> tuple[pd.DataFrame, pd.DataFrame, MiniCourt, float, dict, dict]:
 
     #  Inicializar detectores 
     ball_detector  = BallDetector(ball_model_path, conf=conf, imgsz=imgsz, buffer_size=30)
@@ -44,6 +42,15 @@ def perception_layer(
     width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps    = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    # Guardar datos del video para análisis posterior
+    video_metadata = {
+        "width": width,
+        "height": height,
+        "fps": fps,
+        "total_frames": total_frames,
+    }
 
     kps_detector = CourtKeypointDetector(kps_model_path, device=device)
     kps_detector.set_frame_size(width, height)
@@ -89,7 +96,6 @@ def perception_layer(
     ball_rows    = []
     player_rows  = []
     frame_idx    = 0
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     with torch.inference_mode():
         with tqdm(total=total_frames, desc="Analizando video", unit="frame") as pbar:
@@ -99,10 +105,10 @@ def perception_layer(
                     break
 
                 frame_idx += 1
-                ball_row                          = ball_detector.detect(frame, device, frame_idx)
+                ball_row = ball_detector.detect(frame, device, frame_idx)
 
                 player_rows_frame, players_result = player_tracker.track(frame, device, frame_idx, player_ids=player_ids)
-                kps                               = kps_detector.detect(frame)
+                kps = kps_detector.detect(frame)
                 ball_row["shot_by"] = _assign_shot_to_player(ball_row, player_rows_frame) 
 
                 ball_rows.append(ball_row)
@@ -125,7 +131,6 @@ def perception_layer(
     cap.release()
     writer.release()
 
-    mini_court_state_df = pd.DataFrame([mini_court_state])
     player_df = pd.DataFrame(player_rows)
     ball_df  = pd.DataFrame(ball_rows)
     ball_df  = smooth_ball_positions(ball_df, max_gap=15, use_spline=True) #extra post processing to interpolate the trajectory of the ball in a smoother way
@@ -133,57 +138,8 @@ def perception_layer(
     print(f"  Video guardado en : {output_path}")
     print(f"  Total frames      : {frame_idx}\n")
 
-    return ball_df, player_df, mini_court, fps, mini_court_state_df
+    return ball_df, player_df, mini_court, fps, mini_court_state, video_metadata
 
-#==========================================================================
-# Run perception pipeline and return results
-#==========================================================================
-# def run_perception(video_path: str, job_id: str) -> dict:  # ← recibe job_id
-#     output_path = os.path.join(tempfile.gettempdir(), f"{job_id}.mp4")
-
-#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-#     ball_df, players_df, mini_court, fps = perception_layer(
-#         ball_model_path    = settings.ball_model_path,
-#         players_model_path = settings.players_model_path,
-#         kps_model_path     = settings.kps_model_path,
-#         video_path         = video_path,
-#         output_path        = output_path,
-#         conf               = 0.20,
-#         imgsz              = 640,
-#         device             = device,
-#     )
-
-#     render_smooth_overlay(
-#         input_video  = "output_perception.mp4",
-#         output_video = "output_smooth.mp4",
-#         ball_df      = ball_df,
-#     )
-
-#     # Subir video bajo job_id original
-#     video_object = f"{job_id}/processed/video.mp4"
-#     upload_file(output_path, video_object)
-#     video_url = get_presigned_url(video_object)
-#     os.remove(output_path)
-
-#     # Calcular stats
-#     ball_stats   = BallStats(ball_df, mini_court, fps)
-#     player_stats = PlayerStats(players_df, mini_court, fps)
-
-#     # Subir DataFrames bajo job_id original
-#     upload_dataframe(ball_df,                f"{job_id}/processed/ball_raw.csv")
-#     upload_dataframe(players_df,             f"{job_id}/processed/players_raw.csv")
-#     upload_dataframe(ball_stats.df,          f"{job_id}/processed/ball_stats.csv")
-#     upload_dataframe(player_stats.df,        f"{job_id}/processed/player_stats.csv")
-#     upload_dataframe(player_stats.summary(), f"{job_id}/processed/player_summary.csv")
-
-#     return {
-#         "video_url"   : video_url,
-#         "ball_data"   : clean_data(ball_df.to_dict(orient="records")),
-#         "player_data" : clean_data(players_df.to_dict(orient="records")),
-#         "ball_stats"  : clean_data(ball_stats.df.to_dict(orient="records")),
-#         "player_stats": clean_data(player_stats.summary().to_dict(orient="records")),
-#     }
 
 def run_perception(video_path: str, job_id: str) -> dict:
     output_path        = os.path.join(tempfile.gettempdir(), f"{job_id}.mp4")
@@ -191,7 +147,7 @@ def run_perception(video_path: str, job_id: str) -> dict:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    ball_df, players_df, mini_court, fps, mini_court_state = perception_layer(
+    ball_df, players_df, mini_court, fps, mini_court_state, video_metadata = perception_layer(
         ball_model_path    = settings.ball_model_path,
         players_model_path = settings.players_model_path,
         kps_model_path     = settings.kps_model_path,
@@ -218,41 +174,56 @@ def run_perception(video_path: str, job_id: str) -> dict:
     ball_stats   = BallStats(ball_df, mini_court, fps)
     player_stats = PlayerStats(players_df, mini_court, fps)
 
-
-    def sanitize_for_json(obj):
-        if isinstance(obj, pd.DataFrame):
-            return obj.to_dict(orient="records")
-        if isinstance(obj, pd.Series):
-            return obj.to_dict()
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        if hasattr(obj, 'item') and not isinstance(obj, (list, dict)):
-            return obj.item()
-        return obj
-
-    # Sanitize the dictionary once
+    # Sanitize mini_court_state
     mini_court_state_clean = {k: sanitize_for_json(v) for k, v in mini_court_state.items()}
     upload_file_path = "/tmp/mini_court_state.json"
     with open(upload_file_path, "w") as f:
         json.dump(mini_court_state_clean, f)
+
+    # Sanitize video_metadata
+    video_metadata_clean = {k: sanitize_for_json(v) for k, v in video_metadata.items()}
+    upload_file_path = "/tmp/video_metadata.json"
+    with open(upload_file_path, "w") as f:
+        json.dump(video_metadata_clean, f)
         
     # Subir DataFrames
-    upload_dataframe(ball_df,                f"{job_id}/processed/ball_raw.csv")
-    upload_dataframe(players_df,             f"{job_id}/processed/players_raw.csv")
     upload_dataframe(ball_stats.df,          f"{job_id}/processed/ball_stats.csv")
     upload_dataframe(player_stats.df,        f"{job_id}/processed/player_stats.csv")
-    upload_dataframe(player_stats.summary(), f"{job_id}/processed/player_summary.csv")
-    upload_file(upload_file_path,            f"{job_id}/processed/mini_court_state.json")
-    os.remove(upload_file_path)
 
     return {
         "video_url"   : video_url,
-        "ball_data"   : clean_data(ball_df.to_dict(orient="records")),
-        "player_data" : clean_data(players_df.to_dict(orient="records")),
         "ball_stats"  : clean_data(ball_stats.df.to_dict(orient="records")),
-        "player_stats": clean_data(player_stats.summary().to_dict(orient="records")),
-        "mini_court_homography_state": mini_court_state_clean
+        "player_stats": clean_data(player_stats.df.to_dict(orient="records")),
+        "mini_court_homography_state": clean_data(mini_court_state_clean),
+        "video_data": clean_data(video_metadata_clean)
     }
+
+#==========================================================================
+# Sanitize data json
+#==========================================================================
+
+def sanitize_for_json(obj):
+    # Si es un DataFrame de una sola fila, lo tratamos como registro único
+    if isinstance(obj, pd.DataFrame):
+        if len(obj) == 1:
+            return sanitize_for_json(obj.iloc[0].to_dict())
+        return obj.to_dict(orient="records")
+
+    # Si es una Serie, tomamos sus valores
+    if isinstance(obj, pd.Series):
+        # Si el índice es simple (como [0]), convertimos a lista o valor único
+        dict_obj = obj.to_dict()
+        if list(dict_obj.keys()) == [0]: # Si solo existe el índice 0
+            return sanitize_for_json(dict_obj[0])
+        return {k: sanitize_for_json(v) for k, v in dict_obj.items()}
+
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+        
+    if hasattr(obj, 'item') and not isinstance(obj, (list, dict)):
+        return obj.item()
+        
+    return obj
 
 #==========================================================================
 # Clean data function to replace NaN and Infinity with None recursively
