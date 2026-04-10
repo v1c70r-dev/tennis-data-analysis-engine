@@ -2,30 +2,30 @@
 import os
 import json
 import time
-import psycopg2
+from minio import Minio
 import pika
 from services.shared.queue_definitions import declare_all
+from services.analytics_worker.app.player_stats_analysis import PlayerStatsAnalysis
+from app.config import settings
+from app.db import get_db_connection, try_claim_job
+import io
+import pandas as pd
 
 # ===============================
 # Config
 # ===============================
-POSTGRES_HOST = os.environ["POSTGRES_HOST"]
-POSTGRES_DB = os.environ["POSTGRES_DB"]
-POSTGRES_USER = os.environ["POSTGRES_USER"]
-POSTGRES_PASSWORD = os.environ["POSTGRES_PASSWORD"]
 RABBITMQ_URL = os.environ["RABBITMQ_URL"]
 S3_BUCKET = os.environ["S3_BUCKET"]
 
 # ===============================
-# DB helpers
+# Minio initialization
 # ===============================
-def get_db_connection():
-    return psycopg2.connect(
-        host=POSTGRES_HOST,
-        database=POSTGRES_DB,
-        user=POSTGRES_USER,
-        password=POSTGRES_PASSWORD,
-    )
+minio_client = Minio(
+    settings.minio_endpoint.replace("http://", ""),
+    access_key=settings.minio_access_key,
+    secret_key=settings.minio_secret_key,
+    secure=settings.minio_secure,
+)
 
 
 def try_claim_job(job_id: str, expected_status: str, next_status: str) -> bool:
@@ -75,42 +75,72 @@ def mark_failed(job_id: str):
     finally:
         conn.close()
 
-
 # ===============================
 # Processing logic
 # ===============================
 def process_analytics(job_id: str, output_url: str):
     print(f"[analytics_worker] Processing job {job_id}")
 
-    #  Idempotency guard 
-    # Only accept jobs in 'processed' state.
-    # 'generating_report' handles crash-then-retry: if this worker claimed the
-    # job but crashed, the next delivery finds it in 'generating_report' and
-    # skips cleanly without duplicating the report.
     claimed = try_claim_job(job_id, expected_status="processed", next_status="generating_report")
     if not claimed:
         print(f"[analytics_worker] Job {job_id} not in 'processed' state => skipping")
         return
 
     try:
-        # TODO: replace with real analytics logic:
-        #   1. Download result.json from output_url (MinIO)
-        #   2. Compute stats, generate charts
-        #   3. Build PDF, upload to MinIO under {job_id}/report/report.pdf
+        # 1. Descargar result.json y player_stats.csv desde MinIO
+        with open(output_url) as f:
+            video_processing_result = json.load(f)
+
+        csv_bytes = minio_client.get_object(
+            bucket_name=S3_BUCKET,
+            object_name=f"{job_id}/processed/player_stats.csv"
+        ).read().decode("utf-8")
+
+        analysis = PlayerStatsAnalysis(
+            fps=video_processing_result["video_data"]["fps"],
+            df=pd.read_csv(io.StringIO(csv_bytes)),
+        )
+
+        # 2. Generar todos los datos del dashboard (summary + figuras Plotly serializadas)
+        #    y subirlos como dashboard.json → el frontend los consume directamente
+        dashboard_data = analysis.get_dashboard_data(
+            expresed_in_time=True,
+            flip_view=True,
+        )
+        dashboard_json = json.dumps(dashboard_data).encode("utf-8")
+        minio_client.put_object(
+            bucket_name=S3_BUCKET,
+            object_name=f"{job_id}/report/dashboard.json",
+            data=io.BytesIO(dashboard_json),
+            length=len(dashboard_json),
+            content_type="application/json",
+        )
+
+        # 3. Generar PDF y subirlo a MinIO
+        local_pdf = f"/tmp/{job_id}_report.pdf"
+        analysis.export_pdf(
+            output_path=local_pdf,
+            expresed_in_time=True,
+            flip_view=True,
+        )
+        with open(local_pdf, "rb") as f:
+            pdf_bytes = f.read()
+        minio_client.put_object(
+            bucket_name=S3_BUCKET,
+            object_name=f"{job_id}/report/report.pdf",
+            data=io.BytesIO(pdf_bytes),
+            length=len(pdf_bytes),
+            content_type="application/pdf",
+        )
+
         report_url = f"s3://{S3_BUCKET}/{job_id}/report/report.pdf"
-        time.sleep(3)  # placeholder
-
-        # Single DB write: status + report_url atomically.
-        # The Frontend learns about completion via polling GET /jobs/:id.
-        # No event needs to be published polling reads this directly.
         finalize_job(job_id, report_url)
-
         print(f"[analytics_worker] Job {job_id} -> report_ready")
 
     except Exception as e:
         print(f"[analytics_worker] Job {job_id} failed: {e}")
         mark_failed(job_id)
-        raise  # re-raise so the consumer sends a NACK -> DLQ
+        raise
 
 
 # ===============================

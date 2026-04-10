@@ -11,3 +11,5 @@ fastapi
 pika
 python-multipart
 minio
+plotly
+reportlab
