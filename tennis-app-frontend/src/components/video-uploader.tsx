@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react"
 import { Upload, Play, Pause, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { useVideoProcessor } from "../hooks/UseVideoApi"
 
 export function VideoUploader() {
   const [video, setVideo] = useState<string | null>(null)
@@ -9,14 +10,16 @@ export function VideoUploader() {
   const [isDragOver, setIsDragOver] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const { submit, job, stage, error, reset } = useVideoProcessor()
 
   const handleFileSelect = useCallback((file: File) => {
     if (file && file.type.startsWith("video/")) {
       const url = URL.createObjectURL(file)
       setVideo(url)
       setIsPlaying(false)
+      submit(file)
     }
-  }, [])
+  }, [submit])
 
   const handleDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
@@ -60,8 +63,9 @@ export function VideoUploader() {
     if (video) URL.revokeObjectURL(video)
     setVideo(null)
     setIsPlaying(false)
+    reset()
     if (inputRef.current) inputRef.current.value = ""
-  }, [video])
+  }, [video, reset])
 
   return (
     <div className="flex h-full flex-col">
@@ -73,7 +77,7 @@ export function VideoUploader() {
           </Button>
         )}
       </div>
-      
+
       <div
         className={cn(
           "relative flex flex-1 cursor-pointer items-center justify-center overflow-hidden rounded-lg border-2 border-dashed transition-all duration-200",
@@ -134,6 +138,110 @@ export function VideoUploader() {
           </div>
         )}
       </div>
+
+      <div className="mt-3">
+        {stage !== "idle" && (
+          <div className="rounded-lg border border-border bg-background p-3">
+
+            {/* Header: label + badge */}
+            <div className="mb-2.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {(stage === "uploading" || job?.status === "pending" || job?.status === "processing" || job?.status === "processed" || job?.status === "generating_report") && (
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-border border-t-blue-500" />
+                )}
+                <span className="text-sm font-medium text-foreground">
+                  {stage === "uploading" && "Uploading video…"}
+                  {job?.status === "pending" && "Waiting in queue…"}
+                  {job?.status === "processing" && "Processing video…"}
+                  {job?.status === "processed" && "Video processed…"}
+                  {job?.status === "generating_report" && "Generating report…"}
+                  {job?.status === "report_ready" && "Report ready"}
+                  {job?.status === "failed" && "Something went wrong"}
+                </span>
+                {job?.job_id && job.status !== "report_ready" && job.status !== "failed" && (
+                  <span className="text-xs text-muted-foreground">
+                    job {job.job_id.slice(0, 8)}
+                  </span>
+                )}
+              </div>
+
+              {/* Status badge */}
+              {job?.status === "pending" && (
+                <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  pending
+                </span>
+              )}
+              {(job?.status === "processing" || job?.status === "processed") && (
+                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                  {job.status}
+                </span>
+              )}
+              {job?.status === "generating_report" && (
+                <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                  generating report
+                </span>
+              )}
+              {job?.status === "report_ready" && (
+                <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                  done
+                </span>
+              )}
+              {job?.status === "failed" && (
+                <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                  failed
+                </span>
+              )}
+            </div>
+
+            {/* Progress bar — 5 steps after upload */}
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+              {stage === "uploading" && (
+                <div className="h-full w-2/5 animate-[indeterminate_1.4s_ease_infinite] rounded-full bg-blue-400" />
+              )}
+              {job?.status === "pending" && (
+                <div className="h-full w-1/5 rounded-full bg-blue-300 transition-all duration-500" />
+              )}
+              {job?.status === "processing" && (
+                <div className="h-full w-2/5 rounded-full bg-blue-400 transition-all duration-500" />
+              )}
+              {job?.status === "processed" && (
+                <div className="h-full w-3/5 rounded-full bg-blue-500 transition-all duration-500" />
+              )}
+              {job?.status === "generating_report" && (
+                <div className="h-full w-4/5 rounded-full bg-yellow-500 transition-all duration-500" />
+              )}
+              {job?.status === "report_ready" && (
+                <div className="h-full w-full rounded-full bg-green-500 transition-all duration-500" />
+              )}
+              {job?.status === "failed" && (
+                <div className="h-full w-full rounded-full bg-destructive" />
+              )}
+            </div>
+
+            {/* Step indicators */}
+            {stage !== "uploading" && job?.status !== "failed" && (
+              <div className="mt-2 flex justify-between">
+                {(["pending", "processing", "processed", "generating_report", "report_ready"] as const).map((s) => {
+                  const order = ["pending", "processing", "processed", "generating_report", "report_ready"]
+                  const currentIdx = order.indexOf(job?.status ?? "")
+                  const stepIdx = order.indexOf(s)
+                  const done = currentIdx >= stepIdx
+                  return (
+                    <span key={s} className={`text-[10px] ${done ? "text-foreground" : "text-muted-foreground/40"}`}>
+                      {s === "pending" && "queued"}
+                      {s === "processing" && "processing"}
+                      {s === "processed" && "processed"}
+                      {s === "generating_report" && "report"}
+                      {s === "report_ready" && "ready"}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
     </div>
   )
 }

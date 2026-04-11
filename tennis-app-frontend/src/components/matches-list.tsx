@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Folder, ChevronRight, MoreVertical, Clock, Calendar } from "lucide-react"
+import { Folder, ChevronRight, MoreVertical, Clock, Calendar, RefreshCw, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -9,77 +9,170 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { useJobManager } from "@/hooks/UseJobsDashboard"
+import type { JobSummary, JobStatus } from "@/hooks/UseJobsDashboard"
 
-interface Match {
-  id: string
-  name: string
-  date: string
-  duration: string
-  status: "processed" | "processing" | "pending"
+//  Helpers 
+
+function statusLabel(status: JobStatus): string {
+  switch (status) {
+    case "pending": return "Pending"
+    case "processing": return "Processing..."
+    case "processed": return "Processed"
+    case "generating_report": return "Generating report..."
+    case "report_ready": return "Ready"
+    case "failed": return "Failed"
+  }
 }
 
-const mockMatches: Match[] = [
-  { id: "1", name: "Practice Session - Roland Garros", date: "Apr 8, 2026", duration: "1h 24m", status: "processed" },
-  { id: "2", name: "Training Match vs. Coach", date: "Apr 5, 2026", duration: "45m", status: "processed" },
-  { id: "3", name: "Tournament Semifinal", date: "Apr 2, 2026", duration: "2h 15m", status: "processing" },
-  { id: "4", name: "Doubles Practice", date: "Mar 28, 2026", duration: "1h 10m", status: "processed" },
-  { id: "5", name: "Baseline Drills", date: "Mar 25, 2026", duration: "35m", status: "pending" },
-  { id: "6", name: "Serve Training Session", date: "Mar 22, 2026", duration: "50m", status: "processed" },
-]
+function statusColor(status: JobStatus): string {
+  switch (status) {
+    case "report_ready": return "bg-primary/20 text-primary"
+    case "processing":
+    case "processed":
+    case "generating_report": return "bg-chart-3/20 text-chart-3"
+    case "failed": return "bg-destructive/20 text-destructive"
+    default: return "bg-muted text-muted-foreground"
+  }
+}
 
-export function MatchesList() {
-  const [selectedMatch, setSelectedMatch] = useState<string | null>("1")
+function isInProgress(status: JobStatus): boolean {
+  return ["pending", "processing", "processed", "generating_report"].includes(status)
+}
+
+function jobDisplayName(job: JobSummary): string {
+  // Derive a readable name from the input_url filename, fallback to job_id
+  if (job.input_url) {
+    const parts = job.input_url.split("/")
+    const filename = parts[parts.length - 1]
+    if (filename) return decodeURIComponent(filename)
+  }
+  return job.job_id.slice(0, 8)
+}
+
+//  Component 
+
+interface MatchesListProps {
+  onSelectJob?: (jobId: string) => void
+}
+
+export function MatchesList({ onSelectJob }: MatchesListProps) {
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const { jobs, isLoading, isDeleting, error, refetch, deleteJob } = useJobManager()
+
+  function handleSelect(jobId: string) {
+    setSelectedId(jobId)
+    onSelectJob?.(jobId)
+  }
+
+  async function handleDelete(e: React.MouseEvent, jobId: string) {
+    e.stopPropagation()
+    if (!confirm("Delete this match and all its data?")) return
+    try {
+      await deleteJob(jobId)
+      if (selectedId === jobId) setSelectedId(null)
+    } catch {
+      // error already captured in hook
+    }
+  }
+
+  async function handleDownload(e: React.MouseEvent, jobId: string) {
+    e.stopPropagation()
+    window.open(`/api/jobs/${jobId}/report/download`, "_blank")
+  }
 
   return (
     <div className="flex h-full flex-col">
+
+      {/* Header */}
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-foreground">My Tennis Matches</h2>
-        <span className="text-sm text-muted-foreground">{mockMatches.length} videos</span>
+        <div className="flex items-center gap-2">
+          {!isLoading && (
+            <span className="text-sm text-muted-foreground">{jobs.length} videos</span>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={refetch}
+            disabled={isLoading}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
+          </Button>
+        </div>
       </div>
-      
+
+      {/* Error */}
+      {error && (
+        <p className="mb-2 text-sm text-destructive">{error}</p>
+      )}
+
+      {/* Loading skeleton */}
+      {isLoading && jobs.length === 0 && (
+        <div className="flex flex-col gap-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-16 animate-pulse rounded-lg bg-secondary/50" />
+          ))}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!isLoading && jobs.length === 0 && !error && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+          <Folder className="h-10 w-10 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">No matches yet. Upload a video to get started.</p>
+        </div>
+      )}
+
+      {/* List */}
       <ScrollArea className="flex-1 -mx-1 px-1">
         <div className="flex flex-col gap-2">
-          {mockMatches.map((match) => (
+          {jobs.map((job) => (
             <button
-              key={match.id}
-              onClick={() => setSelectedMatch(match.id)}
+              key={job.job_id}
+              onClick={() => handleSelect(job.job_id)}
               className={cn(
                 "group flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-all duration-200",
-                selectedMatch === match.id
+                selectedId === job.job_id
                   ? "border-primary bg-primary/10"
                   : "border-border bg-secondary/30 hover:border-primary/50 hover:bg-secondary/50"
               )}
             >
+              {/* Icon */}
               <div className={cn(
                 "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
-                match.status === "processed" ? "bg-primary/20 text-primary" :
-                match.status === "processing" ? "bg-chart-3/20 text-chart-3" :
-                "bg-muted text-muted-foreground"
+                statusColor(job.status)
               )}>
-                <Folder className="h-5 w-5" />
+                {isInProgress(job.status)
+                  ? <Loader2 className="h-5 w-5 animate-spin" />
+                  : <Folder className="h-5 w-5" />
+                }
               </div>
-              
+
+              {/* Info */}
               <div className="flex-1 min-w-0">
-                <p className="truncate font-medium text-foreground">{match.name}</p>
+                <p className="truncate font-medium text-foreground">
+                  {jobDisplayName(job)}
+                </p>
                 <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    {match.date}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    {match.duration}
+                  <span className="flex items-center gap-1 font-mono">
+                    {job.job_id.slice(0, 8)}
                   </span>
                 </div>
               </div>
 
+              {/* Status + actions */}
               <div className="flex items-center gap-2">
-                {match.status === "processing" && (
-                  <span className="text-xs font-medium text-chart-3">Processing...</span>
+                {isInProgress(job.status) && (
+                  <span className="text-xs font-medium text-chart-3">
+                    {statusLabel(job.status)}
+                  </span>
                 )}
-                {match.status === "pending" && (
-                  <span className="text-xs font-medium text-muted-foreground">Pending</span>
+                {job.status === "failed" && (
+                  <span className="text-xs font-medium text-destructive">Failed</span>
                 )}
+
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -87,17 +180,31 @@ export function MatchesList() {
                       size="icon"
                       className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => e.stopPropagation()}
+                      disabled={isDeleting}
                     >
                       <MoreVertical className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem>View Analysis</DropdownMenuItem>
-                    <DropdownMenuItem>Download Video</DropdownMenuItem>
-                    <DropdownMenuItem>Rename</DropdownMenuItem>
-                    <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                    {job.status === "report_ready" && (
+                      <DropdownMenuItem onClick={() => handleSelect(job.job_id)}>
+                        View Analysis
+                      </DropdownMenuItem>
+                    )}
+                    {job.report_url && (
+                      <DropdownMenuItem onClick={(e) => handleDownload(e, job.job_id)}>
+                        Download Report
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem
+                      className="text-destructive"
+                      onClick={(e) => handleDelete(e, job.job_id)}
+                    >
+                      Delete
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+
                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
               </div>
             </button>
