@@ -39,10 +39,9 @@ def _fig_to_rl_image(fig: go.Figure, width_cm: float = 16,
 # ---------------------------------------------------------------------------
 
 _PLAYER_COLORS = [
-    (255, 100, 0), (0, 200, 255), (0, 255, 100),
-    (200, 0, 255), (255, 200, 0), (0, 100, 255),
+    "#FF6400", "#00C8FF", "#00FF64",
+    "#C800FF", "#FFC800", "#0064FF",
 ]
-
 
 def _player_color(i: int) -> str:
     return _PLAYER_COLORS[i % len(_PLAYER_COLORS)]
@@ -104,7 +103,7 @@ class PlayerStatsAnalysis:
             frames_total  = int(len(grp))
 
             row: dict[str, Any] = {
-                "player_id":     int(pid),
+                "player_id": int(float(pid)),
                 "dist_total_m":  round(float(valid["dist_meters"].sum()), 2),
                 "speed_max_kmh": round(float(valid["speed_kmh"].max()), 2),
                 "speed_avg_kmh": round(float(valid["speed_kmh"].mean()), 2),
