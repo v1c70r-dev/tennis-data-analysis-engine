@@ -13,6 +13,9 @@ import io
 from services.shared.queue_definitions import declare_all
 from fastapi.responses import StreamingResponse
 import zipfile
+from fastapi import Request
+import subprocess
+
 # ===============================
 # Config
 # ===============================
@@ -382,3 +385,67 @@ def download_all(job_id: str):
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename=job_{job_id[:8]}.zip"}
     )
+
+
+@app.get("/jobs/{job_id}/video")
+def stream_video(job_id: str, request: Request):
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT status FROM jobs WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+        cur.close()
+    finally:
+        release_db_connection(conn)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if row[0] not in ("processed", "generating_report", "report_ready"):
+        raise HTTPException(status_code=425, detail=f"Video not ready: {row[0]}")
+
+    try:
+        import tempfile, os
+
+        # Download from MinIO to a temp file
+        with tempfile.NamedTemporaryFile(suffix="_in.mp4", delete=False) as tmp_in:
+            tmp_in_path = tmp_in.name
+            minio_client.fget_object(S3_BUCKET, f"{job_id}/processed/video.mp4", tmp_in_path)
+
+        tmp_out_path = tmp_in_path.replace("_in.mp4", "_out.mp4")
+
+        # Convert with ffmpeg
+        subprocess.run([
+            "ffmpeg", "-i", tmp_in_path,
+            "-c:v", "libx264",
+            "-profile:v", "baseline",
+            "-level", "3.0",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+            "-y",
+            tmp_out_path
+        ], check=True, stderr=subprocess.DEVNULL)
+
+        # Stream the output file, then clean up
+        file_size = os.path.getsize(tmp_out_path)
+
+        def generate():
+            try:
+                with open(tmp_out_path, "rb") as f:
+                    while chunk := f.read(32 * 1024):
+                        yield chunk
+            finally:
+                os.unlink(tmp_in_path)
+                os.unlink(tmp_out_path)
+
+        return StreamingResponse(
+            generate(),
+            media_type="video/mp4",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(file_size),
+            },
+        )
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail=f"ffmpeg conversion failed: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Video not found: {e}")

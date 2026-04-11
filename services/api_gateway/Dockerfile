@@ -7,6 +7,10 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
 # Copiamos requirements usando la ruta desde la raíz (contexto actual)
+RUN apt-get update --fix-missing && \
+    apt-get install -y --no-install-recommends ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+    
 COPY services/api_gateway/requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt

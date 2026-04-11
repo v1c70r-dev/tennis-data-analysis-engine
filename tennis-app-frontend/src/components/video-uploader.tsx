@@ -1,16 +1,54 @@
-import { useState, useRef, useCallback } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import { Upload, Play, Pause, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useVideoProcessor } from "../hooks/UseVideoApi"
 
-export function VideoUploader() {
+interface VideoUploaderProps {
+  selectedJobId?: string | null
+}
+
+export function VideoUploader({ selectedJobId }: VideoUploaderProps) {
   const [video, setVideo] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const { submit, job, stage, error, reset } = useVideoProcessor()
+
+  // useEffect(() => {
+  //   if (!selectedJobId) return
+  //   // Revocar URL anterior si existe
+  //   if (video) URL.revokeObjectURL(video)
+  //   setVideo(`/api/jobs/${selectedJobId}/video`)
+  //   setIsPlaying(false)
+  // }, [selectedJobId])
+
+  useEffect(() => {
+    if (!selectedJobId) return
+    setVideo((prev) => {
+      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev)
+      return `/api/jobs/${selectedJobId}/video`
+    })
+    setIsPlaying(false)
+  }, [selectedJobId])
+
+  const clearVideo = useCallback(() => {
+    // Solo revocar si es un blob local, no una URL de API
+    if (video && video.startsWith("blob:")) URL.revokeObjectURL(video)
+    setVideo(null)
+    setIsPlaying(false)
+    reset()
+    if (inputRef.current) inputRef.current.value = ""
+  }, [video, reset])
+
+  //   const clearVideo = useCallback(() => {
+  //   if (video) URL.revokeObjectURL(video)
+  //   setVideo(null)
+  //   setIsPlaying(false)
+  //   reset()
+  //   if (inputRef.current) inputRef.current.value = ""
+  // }, [video, reset])
 
   const handleFileSelect = useCallback((file: File) => {
     if (file && file.type.startsWith("video/")) {
@@ -59,13 +97,7 @@ export function VideoUploader() {
     }
   }, [isPlaying])
 
-  const clearVideo = useCallback(() => {
-    if (video) URL.revokeObjectURL(video)
-    setVideo(null)
-    setIsPlaying(false)
-    reset()
-    if (inputRef.current) inputRef.current.value = ""
-  }, [video, reset])
+
 
   return (
     <div className="flex h-full flex-col">
@@ -104,6 +136,7 @@ export function VideoUploader() {
               src={video}
               className="h-full w-full object-contain"
               onEnded={() => setIsPlaying(false)}
+              onError={(e) => console.error("Video error:", e.currentTarget.error)}
             />
             <div className="absolute inset-0 flex items-center justify-center bg-background/20 opacity-0 transition-opacity hover:opacity-100">
               <Button
