@@ -2,6 +2,7 @@ include:
   - postgres/docker-compose.yml
   - rabbitmq/docker-compose.yml
   - minio/docker-compose.yml
+  - nginx/docker-compose.yml
 
 networks:
   tennis-net:

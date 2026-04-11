@@ -49,6 +49,7 @@ Write-Host "`n Endpoints disponibles:" -ForegroundColor Cyan
 Write-Host " - API Gateway:  http://localhost:8000"
 Write-Host " - RabbitMQ UI:  http://localhost:15672"
 Write-Host " - MinIO UI:     http://localhost:9001"
+Write-Host " - NGINX:     http://localhost:80"
 Write-Host " - Postgres:     localhost:5432"
 
 Write-Host "`n Para ver logs:"
