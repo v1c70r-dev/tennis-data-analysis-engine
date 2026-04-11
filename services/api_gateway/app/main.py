@@ -10,6 +10,7 @@ import pika
 from minio import Minio
 from io import BytesIO
 from services.shared.queue_definitions import declare_all
+from fastapi.responses import StreamingResponse
 
 # ===============================
 # Config
@@ -189,3 +190,150 @@ def get_job_status(job_id: str):
         "status": result[0],
         "report_url": result[1],  # None until report_ready
     }
+
+from minio.deleteobjects import DeleteObject
+import re
+
+# ===============================
+# Jobs CRUD
+# ===============================
+
+@app.get("/jobs")
+def list_jobs():
+    """List all jobs with their MinIO objects summary."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, status, input_url, report_url FROM jobs ORDER BY id")
+        rows = cur.fetchall()
+        cur.close()
+    finally:
+        release_db_connection(conn)
+
+    return [
+        {
+            "job_id": row[0],
+            "status": row[1],
+            "input_url": row[2],
+            "report_url": row[3],
+        }
+        for row in rows
+    ]
+
+
+@app.delete("/jobs/{job_id}")
+def delete_job(job_id: str):
+    """Delete a job from PostgreSQL and all its objects from MinIO."""
+    # 1. Verify job exists
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM jobs WHERE id = %s", (job_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Job not found")
+        cur.close()
+    finally:
+        release_db_connection(conn)
+
+    # 2. Delete all MinIO objects under {job_id}/
+    objects = minio_client.list_objects(S3_BUCKET, prefix=f"{job_id}/", recursive=True)
+    delete_list = [DeleteObject(obj.object_name) for obj in objects]
+    if delete_list:
+        errors = list(minio_client.remove_objects(S3_BUCKET, iter(delete_list)))
+        if errors:
+            raise HTTPException(status_code=500, detail=f"MinIO delete errors: {errors}")
+
+    # 3. Delete from PostgreSQL
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+        conn.commit()
+        cur.close()
+    finally:
+        release_db_connection(conn)
+
+    return {"job_id": job_id, "deleted": True}
+
+
+# ===============================
+# Dashboard data
+# ===============================
+
+@app.get("/jobs/{job_id}/dashboard")
+def get_dashboard(job_id: str):
+    """Return dashboard.json from MinIO for Plotly rendering in React."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT status FROM jobs WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+        cur.close()
+    finally:
+        release_db_connection(conn)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if row[0] != "report_ready":
+        raise HTTPException(status_code=425, detail=f"Report not ready, current status: {row[0]}")
+
+    try:
+        response = minio_client.get_object(S3_BUCKET, f"{job_id}/report/dashboard.json")
+        data = json.loads(response.read().decode("utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"dashboard.json not found: {e}")
+
+    return data
+
+
+@app.get("/jobs/{job_id}/report")
+def get_report_url(job_id: str):
+    """Return a presigned URL for the PDF report download."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT status FROM jobs WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+        cur.close()
+    finally:
+        release_db_connection(conn)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if row[0] != "report_ready":
+        raise HTTPException(status_code=425, detail=f"Report not ready, current status: {row[0]}")
+
+    from datetime import timedelta
+    url = minio_client.presigned_get_object(
+        S3_BUCKET,
+        f"{job_id}/report/report.pdf",
+        expires=timedelta(hours=1),
+    )
+    return {"job_id": job_id, "url": url}
+
+
+@app.get("/jobs/{job_id}/report/download")
+def download_report(job_id: str):
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT status FROM jobs WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+        cur.close()
+    finally:
+        release_db_connection(conn)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if row[0] != "report_ready":
+        raise HTTPException(status_code=425, detail=f"Report not ready: {row[0]}")
+
+    try:
+        response = minio_client.get_object(S3_BUCKET, f"{job_id}/report/report.pdf")
+        return StreamingResponse(
+            response,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=report_{job_id[:8]}.pdf"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Report not found: {e}")
