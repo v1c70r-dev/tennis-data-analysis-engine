@@ -157,7 +157,7 @@ export function MatchesList({ onSelectJob }: MatchesListProps) {
                 </p>
                 <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1 font-mono">
-                    {job.job_id.slice(0, 8)}
+                    {job.job_id}
                   </span>
                 </div>
               </div>
@@ -176,7 +176,7 @@ export function MatchesList({ onSelectJob }: MatchesListProps) {
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
-                      variant="ghost"
+                      variant="default"
                       size="icon"
                       className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => e.stopPropagation()}
@@ -194,6 +194,14 @@ export function MatchesList({ onSelectJob }: MatchesListProps) {
                     {job.report_url && (
                       <DropdownMenuItem onClick={(e) => handleDownload(e, job.job_id)}>
                         Download Report
+                      </DropdownMenuItem>
+                    )}
+                    {job.status === "report_ready" && (
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation()
+                        window.open(`/api/jobs/${job.job_id}/download/all`, "_blank")
+                      }}>
+                        Download All
                       </DropdownMenuItem>
                     )}
                     <DropdownMenuItem

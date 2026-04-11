@@ -9,9 +9,10 @@ import psycopg2.pool
 import pika
 from minio import Minio
 from io import BytesIO
+import io
 from services.shared.queue_definitions import declare_all
 from fastapi.responses import StreamingResponse
-
+import zipfile
 # ===============================
 # Config
 # ===============================
@@ -337,3 +338,47 @@ def download_report(job_id: str):
         )
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Report not found: {e}")
+
+
+@app.get("/jobs/{job_id}/download/all")
+def download_all(job_id: str):
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT status FROM jobs WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+        cur.close()
+    finally:
+        release_db_connection(conn)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if row[0] != "report_ready":
+        raise HTTPException(status_code=425, detail=f"Report not ready: {row[0]}")
+
+    # Archivos a incluir en el ZIP
+    files_to_zip = [
+        (f"{job_id}/report/report.pdf",       f"report_{job_id}.pdf"),
+        (f"{job_id}/processed/result.json",   "result.json"),
+        (f"{job_id}/processed/player_stats.csv", "player_stats.csv"),
+        (f"{job_id}/processed/ball_stats.csv",   "ball_stats.csv"),
+        (f"{job_id}/processed/video.mp4",        "video.mp4"),
+    ]
+
+    def generate_zip():
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for object_name, filename in files_to_zip:
+                try:
+                    obj = minio_client.get_object(S3_BUCKET, object_name)
+                    zf.writestr(filename, obj.read())
+                except Exception as e:
+                    print(f"[api_gateway] Skipping {object_name}: {e}")
+        zip_buffer.seek(0)
+        yield zip_buffer.read()
+
+    return StreamingResponse(
+        generate_zip(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=job_{job_id[:8]}.zip"}
+    )
