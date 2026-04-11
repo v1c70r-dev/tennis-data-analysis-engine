@@ -19,3 +19,4 @@ pydantic
 pydantic-settings
 pydantic_core
 pydantic-extra-types
+kaleido==0.2.1
