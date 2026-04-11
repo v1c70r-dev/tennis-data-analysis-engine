@@ -6,8 +6,8 @@ from minio import Minio
 import pika
 from services.shared.queue_definitions import declare_all
 from services.analytics_worker.app.player_stats_analysis import PlayerStatsAnalysis
-from app.config import settings
-from app.db import get_db_connection, try_claim_job
+from services.analytics_worker.app.config import settings
+from services.analytics_worker.app.db import get_db_connection, try_claim_job
 import io
 import pandas as pd
 

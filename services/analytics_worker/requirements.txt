@@ -13,3 +13,9 @@ python-multipart
 minio
 plotly
 reportlab
+scipy
+typing
+pydantic
+pydantic-settings
+pydantic_core
+pydantic-extra-types
