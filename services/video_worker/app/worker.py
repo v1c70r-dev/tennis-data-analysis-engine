@@ -66,7 +66,14 @@ def process_job(body, minio_client, publish_event):
         # pick up the job — but the DB is consistent (status='processed').
         # A reconciliation job can detect and re-publish stale 'processed' jobs.
         update_job_status(job_id, "processed", output_url)
-        publish_event("video.processed", {"job_id": job_id, "output_url": output_url})
+        #publish_event("video.processed", {"job_id": job_id, "output_url": output_url})
+
+        publish_event("video.processed", {
+            "job_id": job_id,
+            "fps": result["video_data"]["fps"],
+            "player_stats_key": f"{job_id}/processed/player_stats.csv",
+            "results_key": f"{job_id}/processed/result.json",
+        })
 
         print(f"[video_worker] Job {job_id} -> processed")
 
