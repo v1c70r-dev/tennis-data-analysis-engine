@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react"
-import { Upload, Play, Pause, X } from "lucide-react"
+import { Upload, Play, Pause, X, Maximize } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useVideoProcessor } from "../hooks/UseVideoApi"
@@ -97,7 +97,15 @@ export function VideoUploader({ selectedJobId }: VideoUploaderProps) {
     }
   }, [isPlaying])
 
-
+  const toggleFullscreen = useCallback(() => {
+    if (videoRef.current) {
+      if (document.fullscreenElement) {
+        document.exitFullscreen()
+      } else {
+        videoRef.current.requestFullscreen()
+      }
+    }
+  }, [])
 
   return (
     <div className="flex h-full flex-col">
@@ -149,6 +157,19 @@ export function VideoUploader({ selectedJobId }: VideoUploaderProps) {
                 }}
               >
                 {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-1" />}
+              </Button>
+
+              {/* Fullscreen button */}
+              <Button
+                variant="secondary"
+                size="icon"
+                className="absolute bottom-3 right-3 h-8 w-8 rounded-full bg-background/70 text-foreground hover:bg-background"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleFullscreen()
+                }}
+              >
+                <Maximize className="h-4 w-4" />
               </Button>
             </div>
           </div>
