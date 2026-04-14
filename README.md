@@ -17,6 +17,13 @@ Tennis Data Analysis Engine is a platform that uses Computer Vision and MLOps de
     - Production-Grade Architecture: Asynchronous pipeline using RabbitMQ for message orchestration, PostgreSQL for atomic state persistence, and MinIO (S3) for storing artifacts and large files.
     - Resilience and Scalability: Distributed processing system with error handling via Dead Letter Queues (DLQ) and atomic claim mechanisms to ensure job integrity in high-concurrency environments.
 
+<br>
+<div align="center">
+    <img src="./documentation/report_example.png" style="width:600px;">
+</div>
+<br>
+
+
 **Technology Stack**
 
 - Deep Learning: PyTorch, Ultralytics (YOLO), torchvision.
