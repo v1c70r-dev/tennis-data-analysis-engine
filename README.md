@@ -1,9 +1,32 @@
-# Tennis Data Analysis Engine
+# 🎾 Tennis Data Analysis Engine
 
+Tennis Data Analysis Engine is a platform that uses Computer Vision and MLOps designed to transform tennis match recordings into high-performance, professional metrics. The system uses a distributed, microservices-based architecture to process video, track players and balls, and generate detailed analytical reports in a scalable and robust manner.
 
 <div align="center">
     <img src="./documentation/tennis-app-front.png" style="width:1000px;">
 </div>
+<br>
+
+**Overview**
+
+- Unlike conventional trackers, this engine integrates multiple Deep Learning models and projective geometry techniques to bridge the gap between video pixels and the physical reality of the court.
+
+- Project Pillars:
+    - Multi-Model Perception: Parallel implementation of YOLOv8 for object detection (players and ball) and ResNet50 for keypoint detection on the court.
+    - Geometric Intelligence (MiniCourt): Homography engine that converts image coordinates into real-world meters, enabling precise calculation of distances, speeds, and tactical positioning.
+    - Production-Grade Architecture: Asynchronous pipeline using RabbitMQ for message orchestration, PostgreSQL for atomic state persistence, and MinIO (S3) for storing artifacts and large files.
+    - Resilience and Scalability: Distributed processing system with error handling via Dead Letter Queues (DLQ) and atomic claim mechanisms to ensure job integrity in high-concurrency environments.
+
+**Technology Stack**
+
+- Deep Learning: PyTorch, Ultralytics (YOLO), torchvision.
+- Image Processing: OpenCV (filters, tracking, and perspective transformations).
+- Backend & API: FastAPI, Python 3.9+.
+- Infrastructure: Docker & Docker Compose, RabbitMQ.
+- Storage: PostgreSQL (Metadata), MinIO (Object Storage).
+- Scripting & Automation: PowerShell (Infrastructure as Code for development).
+
+<br>
 <br>
 
 # Project Architecture
@@ -16,8 +39,9 @@
 
 ## Video Worker
 
-El núcleo de video worker es el loop frame a frame donde los 3 modelos ML (ResNet50 para keypoints, YOLO para jugadores, YOLO para pelota) corren en paralelo sobre cada frame, con MiniCourt actuando como el puente geométrico que convierte píxeles a metros reales vía homografía.
-Los dos puntos de falla más relevantes a tener en cuenta son el claim atómico de Postgres (evita doble procesamiento) y el bloque try/except del worker que hace nack hacia la DLQ en caso de error, lo que protege que un job fallido no quede en loop infinito.
+The core of the video worker is the frame-by-frame loop where the three machine learning models (ResNet50 for keypoints, YOLO for players, and YOLO for the ball) run in parallel on each frame, with MiniCourt acting as the geometric bridge that converts pixels to real meters via homography.
+
+The two most relevant points of failure to consider are Postgres' atomic claim (which prevents double processing) and the worker's try/except block, which backs up to the DLQ in case of an error, thus preventing a failed job from becoming stuck in an infinite loop.
 
 <div align="center">
     <img src="./documentation/video_worker.png" style="width:700px;">
@@ -26,7 +50,7 @@ Los dos puntos de falla más relevantes a tener en cuenta son el claim atómico 
 
 ## Analytics Worker
 
-El worker consume un mensaje de video.processed, intenta apropiarse del job atómicamente en Postgres (evitando que dos workers procesen lo mismo), verifica que los 4 archivos requeridos existan en MinIO, genera el dashboard JSON y el PDF con PlayerStatsCreateReport, los sube a MinIO, y finalmente actualiza el status a report_ready en Postgres antes de hacer ack. Los dos puntos de falla son el claim y la verificación de archivos — ambos derivan al camino de mark_failed si algo no está listo.
+The worker consumes a video.processed message, attempts to atomically claim the job in Postgres (preventing two workers from processing the same thing), verifies that the four required files exist in MinIO, generates the JSON dashboard and PDF using PlayerStatsCreateReport, uploads them to MinIO, and finally updates the status to report_ready in Postgres before checking out. The two points of failure are the claim and the file verification—both lead to the mark_failed path if something isn't ready.
 
 <div align="center">
     <img src="./documentation/analytics_worker.png" style="width:700px;">
@@ -177,9 +201,9 @@ To check the API Gateway docs just go to `http://localhost:8000/docs`
 └── requirements.txt
 ```
 
-# Base de datos
+# Data Base
 
-* Estructura de la tabla `jobs` dentro de la base de datos `tennis` (Almacena el estado y metadata básica de cada job procesado por video_worker):
+* Structure of the `jobs` table within the `tennis` database (Stores the status and basic metadata of each job processed by video_worker):
 
 | column_name | data_type                     | is_nullable | column_default     | is_primary_key |
 |-------------|-------------------------------|-------------|--------------------|----------------|
@@ -191,14 +215,14 @@ To check the API Gateway docs just go to `http://localhost:8000/docs`
 | created_at  | timestamp without time zone   | NO          | CURRENT_TIMESTAMP  | 0              |
 | updated_at  | timestamp without time zone   | NO          | CURRENT_TIMESTAMP  | 0              |
 
-* Cada job puede tener uno de los siguientes estados: `pending`, `processing`, `done`, `failed`
-* Puedes acceder a través del contenedor docker `postgres` que corre en el puerto 5432 :
+* Each job can have one of the following states: `pending`, `processing`, `done`, `failed`
+* You can access it through the `postgres` docker container running on port 5432:
 
     ```bash
     psql -U postgres -d tennis
     select * from jobs limit 10;
     ```
-* A modo de ejemplo:
+* As an example:
 
 | id                                   | status       | input_url                                                                 | output_url                                                                | report_url                                                               | created_at                 | updated_at                 |
 |--------------------------------------|--------------|---------------------------------------------------------------------------|---------------------------------------------------------------------------|---------------------------------------------------------------------------|----------------------------|----------------------------|
@@ -209,9 +233,9 @@ To check the API Gateway docs just go to `http://localhost:8000/docs`
 ## 1. Build up the entire infrastructure (windows powershell)
 
 ```bash
-# dentro de tennis-data-analysis-engine/
+# Inside tennis-data-analysis-engine/
 scripts/up_infra.ps1
-# una vez levantada la infra, crear la base de datos tennis y tabla jobs usando el script:
+# Once the infrastructure is up and running, create the tennis database and jobs table using the script:
 scripts/init_db.ps1
 ```
 
@@ -225,30 +249,30 @@ docker compose -f infra/docker-compose.yml up -d
 docker compose up --build video_worker
 ```
 
-## Crear entorno virtual (Para experimentar con jupyter notebooks)
+##  Create a python virtual environment (To experiment with Jupyter notebooks)
 
 ```bash
-#Crear entorno virtual
+# Create a python virtual environment
 python -m venv venv_tennis_data_analysis
-#Activar entorno virtual (windows)
+# Activate virtual environment (Windows)
 venv_tennis_data_analysis\Scripts\activate 
 ```
 
 ## CUDA, PyTorch y Utralytics
 
 ```bash
-#Chequeo versión de drivers y toolkit
+# Check driver and toolkit version
 nvcc --version
 nvcc: NVIDIA (R) Cuda compiler driver
 Copyright (c) 2005-2023 NVIDIA Corporation
 Built on Wed_Feb__8_05:53:42_Coordinated_Universal_Time_2023
 Cuda compilation tools, release 12.1, V12.1.66
 Build cuda_12.1.r12.1/compiler.32415258_0
-#Instalar pytorch versión compatible
+# Install compatible version of pytorch
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-#Instalar ultralytics
+# Install ultralytics
 pip install ultralytics
-# Instalar roboflow para acceder a dataset de detección de pelota de tenis
+# Install Roboflow to access tennis ball detection dataset
 pip install roboflow
 ```
 
@@ -257,6 +281,6 @@ pip install roboflow
 * https://universe.roboflow.com/viren-dhanwani/tennis-ball-detection
 * Original downloaded video: https://www.youtube.com/watch?v=HjxclvUSQ88
 
-## Inspiración
+## Inspiration
 
 * https://www.youtube.com/watch?v=L23oIHZE14w&t=1s
