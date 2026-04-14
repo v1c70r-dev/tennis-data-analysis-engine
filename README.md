@@ -211,20 +211,11 @@ To check the API Gateway docs just go to `http://localhost:8000/docs`
 ```bash
 # dentro de tennis-data-analysis-engine/
 scripts/up_infra.ps1
-# una vez levantada la infra, revisar que la bbdd exista, si así fuese, revisar que la tabla exista. si no, la crea
+# una vez levantada la infra, crear la base de datos tennis y tabla jobs usando el script:
 scripts/init_db.ps1
 ```
 
-Estructura de la tabla `jobs` (Almacena el estado y metadata básica de cada procesamiento de video):
-
-| Columna     | Tipo        | Restricciones        | Descripción                                      |
-|------------|------------|---------------------|--------------------------------------------------|
-| id         | UUID       | PRIMARY KEY         | Identificador único del job                      |
-| status     | TEXT       | NOT NULL            | Estado del job (`pending`, `processing`, `done`, `failed`) |
-| created_at | TIMESTAMP  | DEFAULT CURRENT_TIMESTAMP | Fecha de creación del job                        |
-
-
-### 2. Build up the entire infrastructure for one service only
+### 2. Build up infrastructure for one service only
 
 ```bash
 # 1. Infra
@@ -234,20 +225,8 @@ docker compose -f infra/docker-compose.yml up -d
 docker compose up --build video_worker
 ```
 
-### 3. Upload an image
+## Crear entorno virtual (Para experimentar con jupyter notebooks)
 
-Check the API docs in http://localhost:8000/docs
-
-```bash
-curl -X POST http://localhost:8000/upload -F "file=@C:\Users\sprou\Documents\tennis-data-analysis-engine\services\video_worker\experimentation\data\tennis_match.mp4"
-```
-```bash
-curl -X POST http://localhost:8000/analysis -F "file=@C:\Users\sprou\Documents\tennis-data-analysis-engine\services\video_worker\experimentation\data\tennis_match.mp4"
-```
-
-
-
-## Crear entorno virtual
 ```bash
 #Crear entorno virtual
 python -m venv venv_tennis_data_analysis
@@ -277,12 +256,7 @@ pip install roboflow
 
 * https://universe.roboflow.com/viren-dhanwani/tennis-ball-detection
 * Original downloaded video: https://www.youtube.com/watch?v=HjxclvUSQ88
-* Tennis court detector: https://github.com/yastrebksv/TennisCourtDetector
 
 ## Inspiración
 
 * https://www.youtube.com/watch?v=L23oIHZE14w&t=1s
-
-## Extras:
-https://www.kaggle.com/datasets/dissfya/atp-tennis-2000-2023daily-pull
-Kafka (end to end): https://www.youtube.com/watch?v=yBc_UVnVhfY
