@@ -1,0 +1,41 @@
+services:
+  analytics_worker:
+    build:
+      context: ../../
+      dockerfile: services/analytics_worker/Dockerfile
+    container_name: analytics_worker
+    restart: unless-stopped
+
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      # RabbitMQ
+      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
+
+      # MinIO / S3
+      - S3_ENDPOINT=${S3_ENDPOINT:-http://minio:9000}
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER:-admin}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password}
+      - S3_BUCKET=${S3_BUCKET:-tennis-data}
+
+      # Postgres
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-tennis}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+
+    networks:
+      - tennis-net
+
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+    volumes:
+      - .:/app/services/analytics_worker
+      - ../shared:/app/services/shared
