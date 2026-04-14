@@ -1,6 +1,7 @@
+# services/video_worker/app/services/ball_stats.py
 import numpy as np
 import pandas as pd
-from app.services.mini_court import MiniCourt, _COURT_WIDTH, _COURT_LENGTH
+from app.services.mini_court import MiniCourt
 
 
 class BallStats:
